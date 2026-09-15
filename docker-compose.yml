@@ -1,0 +1,20 @@
+# Levantar la web con: docker compose up -d
+services:
+  engel:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Generar la clave con:
+      # node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      SESSION_SECRET: "${SESSION_SECRET:?falta definir SESSION_SECRET}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@engel.com}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-engel1234}"
+      MAX_FILE_MB: "25"
+      SECURE_COOKIES: "${SECURE_COOKIES:-false}"
+    volumes:
+      - engel-datos:/datos
+
+volumes:
+  engel-datos:
