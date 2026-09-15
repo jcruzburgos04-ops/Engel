@@ -6,7 +6,6 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { guardarSesion, borrarSesion, requiereSesion } = require('../lib/auth');
 const { asyncHandler, badRequest, noAutorizado } = require('../lib/errores');
-const v = require('../lib/validacion');
 
 const router = express.Router();
 
