@@ -107,10 +107,7 @@ router.get(
     const archivo = db.prepare('SELECT * FROM archivos WHERE id = ?').get(archivoId);
     if (!archivo) throw noEncontrado('No se encontro el archivo.');
 
-    const ver = req.query.ver === 'true';
-    res.download(rutaAbsoluta(archivo.nombre_archivo), archivo.nombre_original, {
-      headers: ver ? { 'Content-Disposition': `inline; filename="${archivo.nombre_original}"` } : {}
-    });
+    res.download(rutaAbsoluta(archivo.nombre_archivo), archivo.nombre_original);
   })
 );
 

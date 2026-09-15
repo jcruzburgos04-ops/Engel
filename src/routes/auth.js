@@ -6,11 +6,19 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { guardarSesion, borrarSesion, requiereSesion } = require('../lib/auth');
 const { asyncHandler, badRequest, noAutorizado } = require('../lib/errores');
+const { limitador } = require('../lib/limites');
 
 const router = express.Router();
 
+const limiteLogin = limitador({
+  intentos: 10,
+  ventanaMs: 10 * 60 * 1000,
+  mensaje: 'Demasiados intentos de ingreso. Esperá unos minutos y volvé a probar.'
+});
+
 router.post(
   '/login',
+  limiteLogin,
   asyncHandler((req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
     const password = String(req.body.password || '');
@@ -27,6 +35,7 @@ router.post(
     if (!usuario || !coincide) throw noAutorizado('Email o contrasena incorrectos.');
     if (!usuario.activo) throw noAutorizado('Tu usuario esta dado de baja. Hablalo con un administrador.');
 
+    limiteLogin.reiniciar(req);
     guardarSesion(res, usuario);
     res.json({
       usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol }

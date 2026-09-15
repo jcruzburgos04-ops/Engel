@@ -329,3 +329,24 @@ test('un vendedor no puede borrar ventas', async () => {
   const { status } = await pedir(`/api/ventas/${ventaId}`, { method: 'DELETE' });
   assert.equal(status, 403);
 });
+
+test('manda las cabeceras de seguridad', async () => {
+  const respuesta = await fetch(`${base}/`);
+  assert.equal(respuesta.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(respuesta.headers.get('x-frame-options'), 'DENY');
+  assert.match(respuesta.headers.get('content-security-policy') || '', /default-src 'self'/);
+});
+
+test('frena los intentos repetidos de ingreso', async () => {
+  let ultimoStatus = 0;
+  for (let intento = 0; intento < 15; intento += 1) {
+    const respuesta = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@test.com', password: 'mal' })
+    });
+    ultimoStatus = respuesta.status;
+    if (ultimoStatus === 429) break;
+  }
+  assert.equal(ultimoStatus, 429, 'despues de varios intentos fallidos corta con 429');
+});
