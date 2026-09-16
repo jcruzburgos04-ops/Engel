@@ -26,18 +26,43 @@ ON CONFLICT (id) DO UPDATE SET
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 -- Solo el equipo entra a los archivos, con las mismas reglas que a los datos.
-DROP POLICY IF EXISTS documentacion_ver ON storage.objects;
-CREATE POLICY documentacion_ver ON storage.objects FOR SELECT
-  USING (bucket_id = 'documentacion' AND public.es_miembro());
+--
+-- En algunos proyectos de Supabase las politicas de Storage no se pueden
+-- crear desde el editor SQL por una cuestion de permisos. Si pasa eso, el
+-- resto de la instalacion NO se interrumpe: al final aparece un aviso
+-- explicando como crearlas a mano desde el panel (Storage → Policies).
+DO $$
+DECLARE
+  politica record;
+  faltaron boolean := false;
+BEGIN
+  FOR politica IN
+    SELECT * FROM (VALUES
+      ('documentacion_ver', 'SELECT', 'USING'),
+      ('documentacion_subir', 'INSERT', 'WITH CHECK'),
+      ('documentacion_reemplazar', 'UPDATE', 'USING'),
+      ('documentacion_borrar', 'DELETE', 'USING')
+    ) AS t(nombre, operacion, clausula)
+  LOOP
+    BEGIN
+      EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects', politica.nombre);
+      EXECUTE format(
+        'CREATE POLICY %I ON storage.objects FOR %s %s (bucket_id = ''documentacion'' AND public.es_miembro())',
+        politica.nombre, politica.operacion, politica.clausula
+      );
+    EXCEPTION WHEN insufficient_privilege OR OTHERS THEN
+      faltaron := true;
+      RAISE WARNING 'No se pudo crear la politica % de Storage: %', politica.nombre, SQLERRM;
+    END;
+  END LOOP;
 
-DROP POLICY IF EXISTS documentacion_subir ON storage.objects;
-CREATE POLICY documentacion_subir ON storage.objects FOR INSERT
-  WITH CHECK (bucket_id = 'documentacion' AND public.es_miembro());
-
-DROP POLICY IF EXISTS documentacion_reemplazar ON storage.objects;
-CREATE POLICY documentacion_reemplazar ON storage.objects FOR UPDATE
-  USING (bucket_id = 'documentacion' AND public.es_miembro());
-
-DROP POLICY IF EXISTS documentacion_borrar ON storage.objects;
-CREATE POLICY documentacion_borrar ON storage.objects FOR DELETE
-  USING (bucket_id = 'documentacion' AND public.es_miembro());
+  IF faltaron THEN
+    RAISE WARNING '%', '
+  ATENCION: faltan las politicas del deposito de archivos.
+  Todo lo demas quedo instalado. Para completarlo, en el panel de Supabase:
+    Storage -> documentacion -> Policies -> New policy -> For full customization
+  Crear cuatro politicas (SELECT, INSERT, UPDATE, DELETE), todas con la
+  expresion:  bucket_id = ''documentacion'' AND public.es_miembro()
+  y el rol "authenticated".';
+  END IF;
+END $$;

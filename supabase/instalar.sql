@@ -2,8 +2,9 @@
 -- Engel · Instalacion completa, para pegar de una sola vez
 -- =====================================================================
 -- Copiar TODO este archivo y pegarlo en el editor SQL de Supabase
--- (menu izquierdo → SQL Editor → New query), y apretar RUN.
+-- (menu izquierdo -> SQL Editor -> New query), y apretar RUN.
 --
+-- Al terminar, abajo aparece un resumen que dice si quedo todo bien.
 -- Se puede volver a ejecutar sin problema: no borra ni duplica nada.
 -- =====================================================================
 
@@ -1457,21 +1458,46 @@ ON CONFLICT (id) DO UPDATE SET
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 -- Solo el equipo entra a los archivos, con las mismas reglas que a los datos.
-DROP POLICY IF EXISTS documentacion_ver ON storage.objects;
-CREATE POLICY documentacion_ver ON storage.objects FOR SELECT
-  USING (bucket_id = 'documentacion' AND public.es_miembro());
+--
+-- En algunos proyectos de Supabase las politicas de Storage no se pueden
+-- crear desde el editor SQL por una cuestion de permisos. Si pasa eso, el
+-- resto de la instalacion NO se interrumpe: al final aparece un aviso
+-- explicando como crearlas a mano desde el panel (Storage → Policies).
+DO $$
+DECLARE
+  politica record;
+  faltaron boolean := false;
+BEGIN
+  FOR politica IN
+    SELECT * FROM (VALUES
+      ('documentacion_ver', 'SELECT', 'USING'),
+      ('documentacion_subir', 'INSERT', 'WITH CHECK'),
+      ('documentacion_reemplazar', 'UPDATE', 'USING'),
+      ('documentacion_borrar', 'DELETE', 'USING')
+    ) AS t(nombre, operacion, clausula)
+  LOOP
+    BEGIN
+      EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects', politica.nombre);
+      EXECUTE format(
+        'CREATE POLICY %I ON storage.objects FOR %s %s (bucket_id = ''documentacion'' AND public.es_miembro())',
+        politica.nombre, politica.operacion, politica.clausula
+      );
+    EXCEPTION WHEN insufficient_privilege OR OTHERS THEN
+      faltaron := true;
+      RAISE WARNING 'No se pudo crear la politica % de Storage: %', politica.nombre, SQLERRM;
+    END;
+  END LOOP;
 
-DROP POLICY IF EXISTS documentacion_subir ON storage.objects;
-CREATE POLICY documentacion_subir ON storage.objects FOR INSERT
-  WITH CHECK (bucket_id = 'documentacion' AND public.es_miembro());
-
-DROP POLICY IF EXISTS documentacion_reemplazar ON storage.objects;
-CREATE POLICY documentacion_reemplazar ON storage.objects FOR UPDATE
-  USING (bucket_id = 'documentacion' AND public.es_miembro());
-
-DROP POLICY IF EXISTS documentacion_borrar ON storage.objects;
-CREATE POLICY documentacion_borrar ON storage.objects FOR DELETE
-  USING (bucket_id = 'documentacion' AND public.es_miembro());
+  IF faltaron THEN
+    RAISE WARNING '%', '
+  ATENCION: faltan las politicas del deposito de archivos.
+  Todo lo demas quedo instalado. Para completarlo, en el panel de Supabase:
+    Storage -> documentacion -> Policies -> New policy -> For full customization
+  Crear cuatro politicas (SELECT, INSERT, UPDATE, DELETE), todas con la
+  expresion:  bucket_id = ''documentacion'' AND public.es_miembro()
+  y el rol "authenticated".';
+  END IF;
+END $$;
 
 -- ===== 06-permisos.sql =====
 -- public, pero dejarlos explicitos evita sorpresas. Quien protege los datos
@@ -1489,3 +1515,58 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 
 -- El visitante sin sesion no puede tocar nada.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+
+-- ===== 07-verificar.sql =====
+-- Engel · Verificacion: se corre al final de la instalacion
+-- =====================================================================
+-- Muestra un resumen para saber de un vistazo si quedo todo bien.
+
+DO $$
+DECLARE
+  tablas integer;
+  funciones integer;
+  politicas integer;
+  deposito integer;
+  politicas_archivos integer;
+BEGIN
+  SELECT count(*) INTO tablas
+  FROM pg_tables WHERE schemaname = 'public'
+    AND tablename IN ('perfiles','invitaciones','vehiculos','ventas','permutas',
+                      'documentos','archivos','notas','auditoria','borradores','estado_datos');
+
+  SELECT count(*) INTO funciones
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname IN ('crear_venta','actualizar_venta','venta_completa','listar_ventas',
+                      'buscar_dominio','panel_documentacion','estadisticas','es_miembro');
+
+  SELECT count(*) INTO politicas FROM pg_policies WHERE schemaname = 'public';
+  SELECT count(*) INTO deposito FROM storage.buckets WHERE id = 'documentacion';
+  SELECT count(*) INTO politicas_archivos
+  FROM pg_policies WHERE schemaname = 'storage' AND policyname LIKE 'documentacion%';
+
+  RAISE NOTICE '';
+  RAISE NOTICE '=====================================================';
+  RAISE NOTICE '  Resultado de la instalacion de Engel';
+  RAISE NOTICE '=====================================================';
+  RAISE NOTICE '  Tablas creadas .............. % de 11', tablas;
+  RAISE NOTICE '  Funciones principales ....... % de 8', funciones;
+  RAISE NOTICE '  Reglas de acceso ............ %', politicas;
+  RAISE NOTICE '  Deposito de archivos ........ %', CASE WHEN deposito = 1 THEN 'listo' ELSE 'FALTA' END;
+  RAISE NOTICE '  Politicas de archivos ....... % de 4', politicas_archivos;
+  RAISE NOTICE '=====================================================';
+
+  IF tablas = 11 AND funciones = 8 AND deposito = 1 AND politicas_archivos = 4 THEN
+    RAISE NOTICE '  TODO LISTO. Ya podes conectar la web.';
+  ELSIF tablas = 11 AND funciones = 8 AND deposito = 1 THEN
+    RAISE NOTICE '  Casi listo: faltan las politicas del deposito de archivos.';
+    RAISE NOTICE '  Mira el aviso de mas arriba para crearlas desde el panel.';
+  ELSE
+    RAISE NOTICE '  Algo no se creo. Revisa los errores de mas arriba.';
+  END IF;
+  RAISE NOTICE '';
+END $$;
+
+-- Avisa a la API de Supabase que el esquema cambio, para que las funciones
+-- nuevas esten disponibles enseguida y no haya que esperar ni reiniciar.
+NOTIFY pgrst, 'reload schema';

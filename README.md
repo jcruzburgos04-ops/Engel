@@ -54,8 +54,21 @@ lo esconda, lo impide la base de datos.
    repositorio, copiar **todo** el contenido y pegarlo ahi.
 3. Apretar **Run**.
 
-Crea las tablas, los permisos, el historial automatico y el deposito de
-archivos. Se puede volver a ejecutar cuando sea: no borra ni duplica nada.
+Al terminar, abajo aparece un resumen. Si dice **"TODO LISTO"**, ya esta:
+
+```
+  Tablas creadas .............. 11 de 11
+  Funciones principales ....... 8 de 8
+  Deposito de archivos ........ listo
+  Politicas de archivos ....... 4 de 4
+  TODO LISTO. Ya podes conectar la web.
+```
+
+Si dijera que faltan las politicas del deposito de archivos, el mismo aviso
+explica como crearlas a mano desde **Storage → documentacion → Policies**.
+Todo lo demas queda instalado igual.
+
+Se puede volver a ejecutar cuando sea: no borra ni duplica nada.
 
 ### 3. Conectar la web con la base
 
