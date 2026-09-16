@@ -54,19 +54,23 @@ lo esconda, lo impide la base de datos.
    repositorio, copiar **todo** el contenido y pegarlo ahi.
 3. Apretar **Run**.
 
-Al terminar, abajo aparece un resumen. Si dice **"TODO LISTO"**, ya esta:
+Al terminar, abajo en **Results** aparece una tabla con el resultado:
 
-```
-  Tablas creadas .............. 11 de 11
-  Funciones principales ....... 8 de 8
-  Deposito de archivos ........ listo
-  Politicas de archivos ....... 4 de 4
-  TODO LISTO. Ya podes conectar la web.
-```
+| control | estado | detalle |
+| --- | --- | --- |
+| Tablas de datos | OK | 11 de 11 |
+| Funciones del sistema | OK | 8 de 8 |
+| Reglas de acceso a los datos | OK | 29 reglas |
+| Deposito de documentacion | OK | creado |
+| Reglas de acceso a los archivos | OK | 4 de 4 |
+| **>>> RESULTADO** | **TODO LISTO** | Ya podes conectar la web |
 
-Si dijera que faltan las politicas del deposito de archivos, el mismo aviso
-explica como crearlas a mano desde **Storage → documentacion → Policies**.
-Todo lo demas queda instalado igual.
+Si en la fila de los archivos dijera que faltan, el detalle explica como
+crearlas a mano desde **Storage → documentacion → Policies**. Todo lo demas
+queda instalado igual.
+
+Para comprobar esto en cualquier momento, sin reinstalar nada, se puede pegar
+y correr [`supabase/verificar.sql`](supabase/verificar.sql).
 
 Se puede volver a ejecutar cuando sea: no borra ni duplica nada.
 
