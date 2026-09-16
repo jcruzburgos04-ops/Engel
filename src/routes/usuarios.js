@@ -45,8 +45,8 @@ router.post(
     const info = db.transaction(() => {
       const resultado = db
         .prepare(
-          `INSERT INTO usuarios (nombre, email, password_hash, rol, activo)
-           VALUES (?, ?, ?, ?, 1)`
+          `INSERT INTO usuarios (nombre, email, password_hash, rol, activo, password_provisoria)
+           VALUES (?, ?, ?, ?, 1, 1)`
         )
         .run(nombre, email, bcrypt.hashSync(password, 10), rol);
       auditoria.registrar({
@@ -84,6 +84,8 @@ router.patch(
       const password = String(req.body.password);
       if (password.length < 8) throw badRequest('La contrasena tiene que tener al menos 8 caracteres.');
       cambios.password_hash = bcrypt.hashSync(password, 10);
+      // La puso un administrador: la persona tiene que cambiarla al entrar.
+      cambios.password_provisoria = 1;
     }
 
     // Siempre tiene que quedar al menos un administrador activo.

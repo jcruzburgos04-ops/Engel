@@ -31,7 +31,7 @@ function borrarSesion(res) {
 }
 
 const buscarUsuario = db.prepare(
-  'SELECT id, nombre, email, rol, activo FROM usuarios WHERE id = ?'
+  'SELECT id, nombre, email, rol, activo, password_provisoria FROM usuarios WHERE id = ?'
 );
 
 // Deja el usuario en req.usuario si la cookie es valida. Nunca corta el flujo.

@@ -38,7 +38,13 @@ router.post(
     limiteLogin.reiniciar(req);
     guardarSesion(res, usuario);
     res.json({
-      usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol }
+      usuario: {
+        id: usuario.id,
+        nombre: usuario.nombre,
+        email: usuario.email,
+        rol: usuario.rol,
+        password_provisoria: usuario.password_provisoria
+      }
     });
   })
 );
@@ -65,10 +71,9 @@ router.post(
       throw badRequest('La contrasena actual no es correcta.');
     }
 
-    db.prepare('UPDATE usuarios SET password_hash = ? WHERE id = ?').run(
-      bcrypt.hashSync(nueva, 10),
-      usuario.id
-    );
+    db.prepare(
+      'UPDATE usuarios SET password_hash = ?, password_provisoria = 0 WHERE id = ?'
+    ).run(bcrypt.hashSync(nueva, 10), usuario.id);
     res.json({ ok: true });
   })
 );

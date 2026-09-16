@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
   password_hash TEXT NOT NULL,
   rol           TEXT NOT NULL DEFAULT 'vendedor' CHECK (rol IN ('admin', 'vendedor')),
   activo        INTEGER NOT NULL DEFAULT 1,
+  -- 1 mientras la contrasena la puso otra persona y todavia no se cambio.
+  password_provisoria INTEGER NOT NULL DEFAULT 0,
   creado_en     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -104,5 +104,10 @@ export const api = {
   urlVentasCsv: (filtros) => `/api/exportar/ventas.csv${consulta(filtros)}`,
   urlDocumentacionCsv: () => '/api/exportar/documentacion.csv',
   urlZipDominio: (dominio) => `/api/exportar/dominio/${encodeURIComponent(dominio)}/documentacion.zip`,
-  urlBackup: () => '/api/exportar/backup.db'
+  urlBackup: () => '/api/exportar/backup.db',
+
+  // Respaldos automaticos guardados en el servidor
+  respaldos: () => pedir('/api/exportar/respaldos'),
+  crearRespaldo: () => pedir('/api/exportar/respaldos', { metodo: 'POST' }),
+  urlRespaldo: (nombre) => `/api/exportar/respaldos/${encodeURIComponent(nombre)}`
 };

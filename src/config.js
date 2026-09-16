@@ -36,6 +36,7 @@ module.exports = {
   maxFileBytes: (Number(process.env.MAX_FILE_MB) || 25) * 1024 * 1024,
   sessionMaxAgeMs: 12 * 60 * 60 * 1000,
   secureCookies: process.env.SECURE_COOKIES === 'true',
+  forzarHttps: process.env.FORZAR_HTTPS === 'true',
   respaldos: {
     // Cada cuantos minutos se hace una copia automatica de la base (0 = nunca).
     cadaMinutos: Number(process.env.RESPALDO_CADA_MINUTOS ?? 180),

@@ -22,9 +22,20 @@ db.pragma('synchronous = FULL');
 db.pragma('busy_timeout = 10000');
 db.pragma('foreign_keys = ON');
 
+// Columnas agregadas despues de la primera version. CREATE TABLE IF NOT EXISTS
+// no toca las tablas que ya existen, asi que se agregan una por una.
+const COLUMNAS_NUEVAS = [
+  ['usuarios', 'password_provisoria', 'INTEGER NOT NULL DEFAULT 0']
+];
+
 function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   db.exec(schema);
+
+  for (const [tabla, columna, definicion] of COLUMNAS_NUEVAS) {
+    const existe = db.prepare(`PRAGMA table_info(${tabla})`).all().some((c) => c.name === columna);
+    if (!existe) db.exec(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${definicion}`);
+  }
 }
 
 // Crea el usuario administrador la primera vez que arranca la aplicacion.
@@ -34,8 +45,8 @@ function ensureAdmin() {
 
   const hash = bcrypt.hashSync(config.admin.password, 10);
   db.prepare(
-    `INSERT INTO usuarios (nombre, email, password_hash, rol, activo)
-     VALUES (?, ?, ?, 'admin', 1)`
+    `INSERT INTO usuarios (nombre, email, password_hash, rol, activo, password_provisoria)
+     VALUES (?, ?, ?, 'admin', 1, 1)`
   ).run(config.admin.nombre, config.admin.email, hash);
 
   console.log(

@@ -92,6 +92,20 @@ function menuLateral(rutaActiva) {
   );
 }
 
+function avisoPasswordProvisoria() {
+  if (!estado.usuario || !estado.usuario.password_provisoria) return null;
+  return h(
+    'div',
+    { class: 'aviso aviso--error', style: 'display:flex;flex-wrap:wrap;align-items:center;gap:.6rem' },
+    h('span', {}, '🔑 Tu contrasena es provisoria. Como la web esta publicada en internet, cambiala ahora.'),
+    h(
+      'button',
+      { class: 'boton boton--chico', type: 'button', style: 'margin-left:auto', onClick: abrirCambioPassword },
+      'Cambiar contrasena'
+    )
+  );
+}
+
 export function encabezado(titulo, subtitulo, ...acciones) {
   return h(
     'header',
@@ -117,7 +131,8 @@ async function dibujar() {
 
   try {
     const vista = await resuelto.definicion.vista(resuelto.params);
-    vaciar(contenido).append(vista);
+    const aviso = avisoPasswordProvisoria();
+    vaciar(contenido).append(...(aviso ? [aviso, vista] : [vista]));
     marcarComoVisto();
     window.scrollTo(0, 0);
   } catch (error) {
@@ -227,7 +242,9 @@ function abrirCambioPassword() {
     try {
       await api.cambiarPassword(actual.value, nueva.value);
       ref.cerrar();
+      if (estado.usuario) estado.usuario.password_provisoria = 0;
       avisar('Contrasena actualizada.');
+      dibujar();
     } catch (err) {
       error.textContent = err.message;
       error.style.display = '';

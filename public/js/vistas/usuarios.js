@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { h, vaciar, fecha, avisar, confirmar, abrirModal, campo, opciones } from '../util.js';
+import { h, vaciar, fecha, fechaHora, tamano, avisar, confirmar, abrirModal, campo, opciones, vacio } from '../util.js';
 import { encabezado, estado as estadoApp } from '../app.js';
 
 function formularioUsuario(usuario, alGuardar) {
@@ -124,6 +124,81 @@ export async function vistaUsuarios() {
     );
   }
 
+  // --- Respaldos automaticos de la base ---
+
+  const tarjetaRespaldos = h('section', { class: 'tarjeta' }, h('div', { class: 'cargando' }, 'Cargando respaldos…'));
+
+  async function cargarRespaldos() {
+    vaciar(tarjetaRespaldos).append(h('div', { class: 'cargando' }, 'Cargando respaldos…'));
+
+    const botonNuevo = h(
+      'button',
+      {
+        class: 'boton boton--chico',
+        type: 'button',
+        onClick: async () => {
+          botonNuevo.disabled = true;
+          botonNuevo.textContent = 'Generando…';
+          try {
+            await api.crearRespaldo();
+            avisar('Respaldo generado.');
+            cargarRespaldos();
+          } catch (error) {
+            avisar(error.message, 'error');
+            botonNuevo.disabled = false;
+            botonNuevo.textContent = '➕ Hacer uno ahora';
+          }
+        }
+      },
+      '➕ Hacer uno ahora'
+    );
+
+    const titulo = h(
+      'div',
+      { class: 'tarjeta__titulo' },
+      '💾 Respaldos automaticos',
+      h('span', { class: 'tenue' }, 'copias completas de la base, por si alguna vez hace falta volver atras'),
+      h('span', { class: 'derecha' }, botonNuevo)
+    );
+
+    try {
+      const { respaldos } = await api.respaldos();
+      if (!respaldos.length) {
+        vaciar(tarjetaRespaldos).append(titulo, vacio('Todavia no hay respaldos guardados.', '💾'));
+        return;
+      }
+
+      vaciar(tarjetaRespaldos).append(
+        titulo,
+        h(
+          'div',
+          { class: 'tabla-scroll' },
+          h(
+            'table',
+            {},
+            h('thead', {}, h('tr', {}, h('th', {}, 'Fecha'), h('th', { class: 'numero' }, 'Tamano'), h('th', {}))),
+            h(
+              'tbody',
+              {},
+              ...respaldos.map((respaldo) =>
+                h(
+                  'tr',
+                  {},
+                  h('td', {}, fechaHora(respaldo.fecha)),
+                  h('td', { class: 'numero' }, tamano(respaldo.tamano)),
+                  h('td', { class: 'acciones' },
+                    h('a', { class: 'boton boton--chico', href: api.urlRespaldo(respaldo.nombre), download: '' }, '⬇️ Descargar'))
+                )
+              )
+            )
+          )
+        )
+      );
+    } catch (error) {
+      vaciar(tarjetaRespaldos).append(titulo, h('div', { class: 'aviso aviso--error', style: 'margin:1rem' }, error.message));
+    }
+  }
+
   const contenedor = h(
     'div',
     {},
@@ -133,9 +208,10 @@ export async function vistaUsuarios() {
       h('a', { class: 'boton', href: api.urlBackup(), download: '' }, '💾 Descargar base de datos'),
       h('button', { class: 'boton boton--primario', type: 'button', onClick: () => formularioUsuario(null, cargar) }, '➕ Agregar integrante')
     ),
-    tabla
+    tabla,
+    tarjetaRespaldos
   );
 
-  await cargar();
+  await Promise.all([cargar(), cargarRespaldos()]);
   return contenedor;
 }

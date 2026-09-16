@@ -18,11 +18,22 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
+// Si la web esta publicada, cualquier visita por http se manda a https.
+if (config.forzarHttps) {
+  app.use((req, res, siguiente) => {
+    if (req.secure || req.get('x-forwarded-proto') === 'https') return siguiente();
+    return res.redirect(308, `https://${req.get('host')}${req.originalUrl}`);
+  });
+}
+
 // Cabeceras de seguridad basicas. La web solo carga recursos propios.
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
+  if (config.secureCookies) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
@@ -52,7 +63,7 @@ app.get('/api/salud', (_req, res) => res.json({ ok: true, fecha: new Date().toIS
 
 // La web consulta esto cada pocos segundos para enterarse de que otra persona
 // cargo o modifico algo mientras tanto.
-app.get('/api/estado-datos', (_req, res) => {
+app.get('/api/estado-datos', require('./lib/auth').requiereSesion, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(auditoria.versionDatos());
 });

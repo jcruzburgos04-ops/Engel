@@ -5,6 +5,7 @@ import {
   descripcionVehiculo, ESTADOS_VENTA
 } from '../util.js';
 import { campoAuto, campoAutoAncho } from '../campo-auto.js';
+import { esperarGuardado } from '../guardado.js';
 import { encabezado, navegar, estado as estadoApp, refrescarPendientes } from '../app.js';
 import { bloqueDocumentacion } from './documentos-ui.js';
 import { camposVehiculo } from './campos-vehiculo.js';
@@ -35,6 +36,24 @@ export async function vistaVenta({ id }) {
     const { venta } = await api.venta(id);
     await refrescarPendientes();
     vaciar(contenedor).append(...pintar(venta));
+  }
+
+  // Redibujar borraria lo que la persona este escribiendo en ese momento.
+  // Por eso se espera a que termine de guardarse todo y a que no haya ningun
+  // campo con el foco puesto; si lo hay, se vuelve a intentar mas tarde.
+  let reloj;
+  function recargarCuandoSePueda() {
+    clearTimeout(reloj);
+    reloj = setTimeout(async function intentar() {
+      const activo = document.activeElement;
+      const escribiendo = activo && ['INPUT', 'TEXTAREA'].includes(activo.tagName);
+      if (escribiendo || !contenedor.isConnected) {
+        reloj = setTimeout(intentar, 1500);
+        return;
+      }
+      await esperarGuardado(5000);
+      if (contenedor.isConnected) recargar();
+    }, 600);
   }
 
   // Campo de la venta que se guarda solo.
@@ -147,7 +166,7 @@ export async function vistaVenta({ id }) {
     );
 
     // Al cambiar el estado conviene redibujar para que se actualicen las etiquetas.
-    selectorEstado.addEventListener('change', () => setTimeout(recargar, 400));
+    selectorEstado.addEventListener('change', recargarCuandoSePueda);
 
     // --- Auto vendido ---
 
@@ -156,7 +175,7 @@ export async function vistaVenta({ id }) {
       [{ valor: 'propio', texto: 'Propio (de la concesionaria)' }, { valor: 'consigna', texto: 'En consigna' }],
       v.tenencia
     );
-    selectorTenencia.addEventListener('change', () => setTimeout(recargar, 400));
+    selectorTenencia.addEventListener('change', recargarCuandoSePueda);
 
     const auto = h(
       'section',
