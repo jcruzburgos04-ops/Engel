@@ -7,6 +7,7 @@ const archiver = require('archiver');
 const db = require('../db');
 const config = require('../config');
 const consultas = require('../lib/consultas');
+const respaldos = require('../lib/respaldos');
 const { etiquetaDocumento } = require('../lib/documentos');
 const { normalizarDominio } = require('../lib/dominio');
 const { requiereSesion, requiereAdmin } = require('../lib/auth');
@@ -205,6 +206,34 @@ router.get(
     await db.backup(destino);
     const nombre = `engel-backup-${new Date().toISOString().slice(0, 10)}.db`;
     res.download(destino, nombre, () => fs.unlink(destino, () => {}));
+  })
+);
+
+// Respaldos automaticos guardados en el servidor.
+router.get(
+  '/respaldos',
+  requiereAdmin,
+  asyncHandler((_req, res) => {
+    res.json({ respaldos: respaldos.listar() });
+  })
+);
+
+router.post(
+  '/respaldos',
+  requiereAdmin,
+  asyncHandler(async (_req, res) => {
+    const destino = await respaldos.hacerRespaldo();
+    res.status(201).json({ ok: true, nombre: require('path').basename(destino) });
+  })
+);
+
+router.get(
+  '/respaldos/:nombre',
+  requiereAdmin,
+  asyncHandler((req, res) => {
+    const ruta = respaldos.rutaDeRespaldo(req.params.nombre);
+    if (!ruta) throw noEncontrado('No se encontro ese respaldo.');
+    res.download(ruta, req.params.nombre);
   })
 );
 

@@ -441,3 +441,91 @@ td.acciones { text-align: right; white-space: nowrap; }
   .contenido { padding: 0; }
   .tarjeta { box-shadow: none; break-inside: avoid; }
 }
+
+/* ---------- Guardado automatico ---------- */
+
+.guardado {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .45rem .8rem;
+  border-radius: 999px;
+  font-size: .8rem;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(20, 30, 60, .18);
+  border: 1px solid transparent;
+  transition: opacity .25s;
+}
+.guardado--ok { background: var(--ok-suave); color: var(--ok); border-color: #c6e8d9; }
+.guardado--trabajando { background: var(--alerta-suave); color: var(--alerta); border-color: #f3ddb5; }
+.guardado--alerta { background: var(--error-suave); color: var(--error); border-color: #f2ccc8; }
+.guardado--tranquilo { opacity: 0; pointer-events: none; }
+
+/* Campo que se guarda solo: marca visible mientras se confirma */
+.autoguardado { position: relative; }
+.autoguardado--guardando input,
+.autoguardado--guardando select,
+.autoguardado--guardando textarea { border-color: var(--alerta); }
+.autoguardado--ok input,
+.autoguardado--ok select,
+.autoguardado--ok textarea { border-color: var(--ok); }
+.autoguardado--error input,
+.autoguardado--error select,
+.autoguardado--error textarea { border-color: var(--error); }
+
+.autoguardado__marca {
+  font-size: .72rem;
+  font-weight: 600;
+  min-height: 1rem;
+  display: block;
+}
+.autoguardado__marca--ok { color: var(--ok); }
+.autoguardado__marca--guardando { color: var(--alerta); }
+.autoguardado__marca--error { color: var(--error); }
+
+.aviso-sincro {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  background: var(--texto);
+  color: #fff;
+  padding: .6rem .9rem;
+  border-radius: 999px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .22);
+  font-size: .85rem;
+  max-width: calc(100vw - 2rem);
+}
+.aviso-sincro .boton { padding: .25rem .6rem; }
+
+.borrador-aviso {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+  background: var(--alerta-suave);
+  border: 1px solid #f3ddb5;
+  color: var(--alerta);
+  border-radius: var(--radio-chico);
+  padding: .7rem .9rem;
+  margin-bottom: 1rem;
+  font-size: .875rem;
+}
+.borrador-aviso .derecha { margin-left: auto; display: flex; gap: .4rem; }
+
+@media (max-width: 860px) {
+  .guardado { left: 1rem; right: 1rem; bottom: .75rem; justify-content: center; }
+  .aviso-sincro { flex-wrap: wrap; justify-content: center; bottom: 3.5rem; }
+}
+
+@media print {
+  .guardado, .aviso-sincro { display: none !important; }
+}

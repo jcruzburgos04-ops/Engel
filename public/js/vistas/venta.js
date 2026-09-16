@@ -4,18 +4,12 @@ import {
   campo, campoAncho, opciones, etiquetaEstadoVenta, etiquetaDominio, etiquetaTenencia,
   descripcionVehiculo, ESTADOS_VENTA
 } from '../util.js';
+import { campoAuto, campoAutoAncho } from '../campo-auto.js';
 import { encabezado, navegar, estado as estadoApp, refrescarPendientes } from '../app.js';
 import { bloqueDocumentacion } from './documentos-ui.js';
 import { camposVehiculo } from './campos-vehiculo.js';
 
-function dato(etiqueta, ...valor) {
-  return h(
-    'div',
-    { class: 'campo' },
-    h('label', {}, etiqueta),
-    h('div', { style: 'font-size:.95rem' }, ...valor.map((v) => (v instanceof Node ? v : String(v ?? '—'))))
-  );
-}
+const MONEDAS = [{ valor: 'ARS', texto: 'Pesos (ARS)' }, { valor: 'USD', texto: 'Dolares (USD)' }];
 
 function avisoEntrega(venta) {
   if (!venta.fecha_entrega_estimada) return null;
@@ -33,6 +27,9 @@ function avisoEntrega(venta) {
 
 export async function vistaVenta({ id }) {
   const contenedor = h('div', {});
+  const ruta = `/api/ventas/${id}`;
+
+  const { usuarios } = await api.usuarios(true);
 
   async function recargar() {
     const { venta } = await api.venta(id);
@@ -40,34 +37,34 @@ export async function vistaVenta({ id }) {
     vaciar(contenedor).append(...pintar(venta));
   }
 
+  // Campo de la venta que se guarda solo.
+  const campoVenta = (etiqueta, control, nombre, ayuda) =>
+    campoAuto({ etiqueta, control, ruta, campo: nombre, ayuda });
+
+  // Campo del auto vendido: viaja anidado dentro de `vehiculo`.
+  const campoAuto2 = (etiqueta, control, nombre, ayuda) =>
+    campoAuto({
+      etiqueta,
+      control,
+      ruta,
+      campo: nombre,
+      ayuda,
+      claveExtra: ':vehiculo',
+      envolver: (valor, clave) => ({ vehiculo: { [clave]: valor } })
+    });
+
   function pintar(venta) {
     const esAdmin = estadoApp.usuario.rol === 'admin';
     const totalDocs = venta.documentacion.reduce((suma, g) => suma + g.total, 0);
     const listosDocs = venta.documentacion.reduce((suma, g) => suma + g.listos, 0);
-
-    // --- Cambio rapido de estado ---
-    const selectorEstado = opciones(
-      h('select', {}),
-      Object.entries(ESTADOS_VENTA).map(([valor, info]) => ({ valor, texto: info.texto })),
-      venta.estado
-    );
-    selectorEstado.addEventListener('change', async () => {
-      try {
-        await api.editarVenta(venta.id, { estado: selectorEstado.value });
-        avisar('Estado actualizado.');
-        recargar();
-      } catch (error) {
-        avisar(error.message, 'error');
-        selectorEstado.value = venta.estado;
-      }
-    });
+    const v = venta.vehiculo;
 
     const cabecera = encabezado(
       `Venta #${venta.id}`,
-      `${descripcionVehiculo(venta.vehiculo)} · cargada por ${venta.creado_por_nombre || venta.vendedor_nombre} el ${fechaHora(venta.creado_en)}`,
+      `${descripcionVehiculo(v)} · cargada por ${venta.creado_por_nombre || venta.vendedor_nombre} el ${fechaHora(venta.creado_en)}`,
       h('a', { class: 'boton', href: '#/ventas' }, '← Volver'),
-      h('button', { class: 'boton', type: 'button', onClick: () => abrirEdicion(venta, recargar) }, '✏️ Editar'),
-      h('a', { class: 'boton', href: api.urlZipDominio(venta.vehiculo.dominio) }, '⬇️ Documentacion ZIP'),
+      h('a', { class: 'boton', href: api.urlZipDominio(v.dominio) }, '⬇️ Documentacion ZIP'),
+      h('button', { class: 'boton', type: 'button', onClick: () => abrirHistorial(venta) }, '🕓 Historial'),
       esAdmin
         ? h(
             'button',
@@ -76,13 +73,14 @@ export async function vistaVenta({ id }) {
               type: 'button',
               onClick: async () => {
                 const ok = await confirmar(
-                  `Vas a borrar la venta #${venta.id} (${venta.vehiculo.dominio}) con toda su documentacion cargada. No se puede deshacer.`,
+                  `Vas a borrar la venta #${venta.id} (${v.dominio}) con toda su documentacion cargada. ` +
+                    'Queda registrada en el historial, pero la ficha desaparece del listado.',
                   { textoBoton: 'Borrar venta' }
                 );
                 if (!ok) return;
                 try {
                   await api.borrarVenta(venta.id);
-                  avisar('Venta borrada.');
+                  avisar('Venta borrada. Queda constancia en el historial.');
                   navegar('ventas');
                 } catch (error) {
                   avisar(error.message, 'error');
@@ -94,18 +92,30 @@ export async function vistaVenta({ id }) {
         : null
     );
 
-    // --- Resumen de la operacion ---
-    const resumen = h(
+    // --- Datos de la operacion, todos editables y con guardado automatico ---
+
+    const selectorEstado = opciones(
+      h('select', {}),
+      Object.entries(ESTADOS_VENTA).map(([valor, info]) => ({ valor, texto: info.texto })),
+      venta.estado
+    );
+
+    const selectorVendedor = opciones(
+      h('select', {}),
+      usuarios.map((u) => ({ valor: u.id, texto: u.nombre + (u.activo ? '' : ' (baja)') })),
+      venta.vendedor_id
+    );
+
+    const operacion = h(
       'section',
       { class: 'tarjeta' },
       h(
         'div',
         { class: 'tarjeta__titulo' },
-        etiquetaDominio(venta.vehiculo.dominio),
-        etiquetaTenencia(venta.vehiculo.tenencia),
+        etiquetaDominio(v.dominio),
+        etiquetaTenencia(v.tenencia),
         etiquetaEstadoVenta(venta.estado),
-        h('span', { class: 'derecha', style: 'display:flex;align-items:center;gap:.5rem' },
-          h('span', { class: 'tenue' }, 'Cambiar estado:'), selectorEstado)
+        h('span', { class: 'derecha tenue' }, 'Los cambios se guardan solos')
       ),
       h(
         'div',
@@ -113,35 +123,87 @@ export async function vistaVenta({ id }) {
         h(
           'div',
           { class: 'campos' },
-          dato('Vehiculo', descripcionVehiculo(venta.vehiculo)),
-          dato('Color', venta.vehiculo.color || '—'),
-          dato('Kilometraje', venta.vehiculo.kilometraje ? `${numero(venta.vehiculo.kilometraje)} km` : '—'),
-          dato('Origen', venta.vehiculo.tenencia === 'consigna'
-            ? `Consigna${venta.vehiculo.consignante_nombre ? ` de ${venta.vehiculo.consignante_nombre}` : ''}`
-            : 'Propio de la concesionaria'),
-          dato('Vendedor', venta.vendedor_nombre),
-          dato('Fecha de venta', fecha(venta.fecha_venta)),
-          dato('Cliente', venta.cliente_nombre),
-          dato('Documento', venta.cliente_documento || '—'),
-          dato('Telefono', venta.cliente_telefono || '—'),
-          dato('Email', venta.cliente_email || '—'),
-          dato('Precio', dinero(venta.precio_venta, venta.moneda)),
-          dato('Sena', venta.sena ? dinero(venta.sena, venta.moneda) : '—'),
-          dato('Forma de pago', venta.forma_pago || '—'),
-          dato('Entrega estimada', fecha(venta.fecha_entrega_estimada)),
-          dato('Entrega real', fecha(venta.fecha_entrega_real)),
-          dato('Documentacion', `${listosDocs} de ${totalDocs} listos`),
-          venta.vehiculo.nro_chasis ? dato('Nro. de chasis', venta.vehiculo.nro_chasis) : null,
-          venta.vehiculo.nro_motor ? dato('Nro. de motor', venta.vehiculo.nro_motor) : null,
-          venta.vehiculo.descripcion ? campoAncho('Descripcion del auto', h('div', {}, venta.vehiculo.descripcion)) : null,
-          venta.detalles
-            ? campoAncho('Detalles de la operacion', h('div', { style: 'white-space:pre-wrap' }, venta.detalles))
-            : null
+          campoVenta('Estado', selectorEstado, 'estado'),
+          campoVenta('Vendio', selectorVendedor, 'vendedor_id', 'Quien hizo esta venta.'),
+          campoVenta('Fecha de venta', h('input', { type: 'date', value: venta.fecha_venta || '' }), 'fecha_venta'),
+          campoVenta('Cliente', h('input', { value: venta.cliente_nombre || '' }), 'cliente_nombre'),
+          campoVenta('Documento del cliente', h('input', { value: venta.cliente_documento || '' }), 'cliente_documento'),
+          campoVenta('Telefono', h('input', { value: venta.cliente_telefono || '' }), 'cliente_telefono'),
+          campoVenta('Email', h('input', { type: 'email', value: venta.cliente_email || '' }), 'cliente_email'),
+          campoVenta('Precio de venta', h('input', { type: 'number', min: 0, step: '0.01', value: venta.precio_venta ?? '' }), 'precio_venta'),
+          campoVenta('Moneda', opciones(h('select', {}), MONEDAS, venta.moneda), 'moneda'),
+          campoVenta('Sena', h('input', { type: 'number', min: 0, step: '0.01', value: venta.sena ?? '' }), 'sena'),
+          campoVenta('Forma de pago', h('input', { value: venta.forma_pago || '' }), 'forma_pago'),
+          campoVenta('Entrega estimada', h('input', { type: 'date', value: venta.fecha_entrega_estimada || '' }), 'fecha_entrega_estimada', 'Se usa para los avisos de entrega.'),
+          campoVenta('Entrega real', h('input', { type: 'date', value: venta.fecha_entrega_real || '' }), 'fecha_entrega_real'),
+          campoAutoAncho({
+            etiqueta: 'Detalles extras de la operacion',
+            control: (() => { const t = h('textarea', { rows: 3 }); t.value = venta.detalles || ''; return t; })(),
+            ruta,
+            campo: 'detalles'
+          })
+        )
+      )
+    );
+
+    // Al cambiar el estado conviene redibujar para que se actualicen las etiquetas.
+    selectorEstado.addEventListener('change', () => setTimeout(recargar, 400));
+
+    // --- Auto vendido ---
+
+    const selectorTenencia = opciones(
+      h('select', {}),
+      [{ valor: 'propio', texto: 'Propio (de la concesionaria)' }, { valor: 'consigna', texto: 'En consigna' }],
+      v.tenencia
+    );
+    selectorTenencia.addEventListener('change', () => setTimeout(recargar, 400));
+
+    const auto = h(
+      'section',
+      { class: 'tarjeta' },
+      h(
+        'div',
+        { class: 'tarjeta__titulo' },
+        '🚗 Auto vendido',
+        h('span', { class: 'tenue' }, `Dominio ${v.dominio} (no se cambia desde aca)`),
+        h('span', { class: 'derecha' }, h('a', { class: 'boton boton--chico', href: `#/buscador/${v.dominio}` }, 'Ver ficha del dominio'))
+      ),
+      h(
+        'div',
+        { class: 'tarjeta__cuerpo' },
+        h(
+          'div',
+          { class: 'campos' },
+          campoAuto2('Marca', h('input', { value: v.marca || '' }), 'marca'),
+          campoAuto2('Modelo', h('input', { value: v.modelo || '' }), 'modelo'),
+          campoAuto2('Version', h('input', { value: v.version || '' }), 'version'),
+          campoAuto2('Ano', h('input', { type: 'number', value: v.anio ?? '' }), 'anio'),
+          campoAuto2('Color', h('input', { value: v.color || '' }), 'color'),
+          campoAuto2('Kilometraje', h('input', { type: 'number', min: 0, value: v.kilometraje ?? '' }), 'kilometraje'),
+          campoAuto2('Nro. de chasis', h('input', { value: v.nro_chasis || '' }), 'nro_chasis'),
+          campoAuto2('Nro. de motor', h('input', { value: v.nro_motor || '' }), 'nro_motor'),
+          campoAuto2('Origen del auto', selectorTenencia, 'tenencia'),
+          v.tenencia === 'consigna'
+            ? campoAuto2('Consignante', h('input', { value: v.consignante_nombre || '' }), 'consignante_nombre')
+            : null,
+          v.tenencia === 'consigna'
+            ? campoAuto2('Contacto del consignante', h('input', { value: v.consignante_contacto || '' }), 'consignante_contacto')
+            : null,
+          campoAutoAncho({
+            etiqueta: 'Descripcion',
+            control: (() => { const t = h('textarea', { rows: 2 }); t.value = v.descripcion || ''; return t; })(),
+            ruta,
+            campo: 'descripcion',
+            claveExtra: ':vehiculo',
+            envolver: (valor, clave) => ({ vehiculo: { [clave]: valor } }),
+            ayuda: 'Sirve para reconocer el auto de un vistazo en los listados.'
+          })
         )
       )
     );
 
     // --- Permutas ---
+
     const permutas = h(
       'section',
       { class: 'tarjeta' },
@@ -162,6 +224,7 @@ export async function vistaVenta({ id }) {
     );
 
     // --- Notas ---
+
     const textoNota = h('textarea', { rows: 2, placeholder: 'Sumar un detalle de la operacion…' });
     const guardarNota = async () => {
       const texto = textoNota.value.trim();
@@ -186,41 +249,7 @@ export async function vistaVenta({ id }) {
           textoNota,
           h('button', { class: 'boton boton--primario', type: 'button', onClick: guardarNota }, 'Agregar')),
         venta.notas.length
-          ? h(
-              'div',
-              {},
-              ...venta.notas.map((nota) =>
-                h(
-                  'div',
-                  { class: 'nota' },
-                  h(
-                    'div',
-                    { class: 'nota__meta' },
-                    h('strong', {}, nota.autor || 'Sin autor'),
-                    h('span', {}, fechaHora(nota.creado_en)),
-                    h(
-                      'button',
-                      {
-                        class: 'boton boton--chico',
-                        type: 'button',
-                        style: 'margin-left:auto',
-                        onClick: async () => {
-                          if (!(await confirmar('Vas a borrar esta nota.', { textoBoton: 'Borrar' }))) return;
-                          try {
-                            await api.borrarNota(venta.id, nota.id);
-                            recargar();
-                          } catch (error) {
-                            avisar(error.message, 'error');
-                          }
-                        }
-                      },
-                      'Borrar'
-                    )
-                  ),
-                  h('div', { class: 'nota__texto' }, nota.texto)
-                )
-              )
-            )
+          ? h('div', {}, ...venta.notas.map((nota) => bloqueNota(venta, nota, recargar)))
           : h('p', { class: 'tenue', style: 'margin:0' }, 'Todavia no hay detalles cargados.')
       )
     );
@@ -235,7 +264,8 @@ export async function vistaVenta({ id }) {
     return [
       cabecera,
       avisoEntrega(venta),
-      resumen,
+      operacion,
+      auto,
       permutas,
       tituloDocs,
       bloqueDocumentacion(venta.documentacion),
@@ -248,6 +278,38 @@ export async function vistaVenta({ id }) {
 }
 
 // ---------- Bloques auxiliares ----------
+
+function bloqueNota(venta, nota, recargar) {
+  return h(
+    'div',
+    { class: 'nota' },
+    h(
+      'div',
+      { class: 'nota__meta' },
+      h('strong', {}, nota.autor || 'Sin autor'),
+      h('span', {}, fechaHora(nota.creado_en)),
+      h(
+        'button',
+        {
+          class: 'boton boton--chico',
+          type: 'button',
+          style: 'margin-left:auto',
+          onClick: async () => {
+            if (!(await confirmar('Vas a borrar esta nota. Queda registrada en el historial.', { textoBoton: 'Borrar' }))) return;
+            try {
+              await api.borrarNota(venta.id, nota.id);
+              recargar();
+            } catch (error) {
+              avisar(error.message, 'error');
+            }
+          }
+        },
+        'Borrar'
+      )
+    ),
+    h('div', { class: 'nota__texto' }, nota.texto)
+  );
+}
 
 function bloquePermuta(venta, permuta, recargar) {
   return h(
@@ -303,7 +365,7 @@ function bloquePermuta(venta, permuta, recargar) {
 function abrirNuevaPermuta(venta, recargar) {
   const vehiculo = camposVehiculo({}, { conTenencia: false });
   const valor = h('input', { type: 'number', min: 0, step: '0.01', placeholder: '4000000' });
-  const moneda = opciones(h('select', {}), [{ valor: 'ARS', texto: 'Pesos (ARS)' }, { valor: 'USD', texto: 'Dolares (USD)' }], 'ARS');
+  const moneda = opciones(h('select', {}), MONEDAS, 'ARS');
   const observaciones = h('textarea', { rows: 2 });
   const error = h('div', { class: 'aviso aviso--error', style: 'display:none' });
 
@@ -344,91 +406,42 @@ function abrirNuevaPermuta(venta, recargar) {
   });
 }
 
-function abrirEdicion(venta, recargar) {
-  const vehiculo = camposVehiculo(venta.vehiculo);
-  vehiculo.controles.dominio.disabled = true;
-  vehiculo.controles.dominio.title = 'El dominio no se puede cambiar desde aca.';
+const ACCIONES = { crear: '➕', editar: '✏️', borrar: '🗑️' };
 
-  const controles = {
-    fecha_venta: h('input', { type: 'date', value: venta.fecha_venta || '' }),
-    estado: opciones(h('select', {}), Object.entries(ESTADOS_VENTA).map(([valor, info]) => ({ valor, texto: info.texto })), venta.estado),
-    cliente_nombre: h('input', { value: venta.cliente_nombre || '' }),
-    cliente_documento: h('input', { value: venta.cliente_documento || '' }),
-    cliente_telefono: h('input', { value: venta.cliente_telefono || '' }),
-    cliente_email: h('input', { type: 'email', value: venta.cliente_email || '' }),
-    precio_venta: h('input', { type: 'number', min: 0, step: '0.01', value: venta.precio_venta ?? '' }),
-    moneda: opciones(h('select', {}), [{ valor: 'ARS', texto: 'Pesos (ARS)' }, { valor: 'USD', texto: 'Dolares (USD)' }], venta.moneda),
-    sena: h('input', { type: 'number', min: 0, step: '0.01', value: venta.sena ?? '' }),
-    forma_pago: h('input', { value: venta.forma_pago || '' }),
-    fecha_entrega_estimada: h('input', { type: 'date', value: venta.fecha_entrega_estimada || '' }),
-    fecha_entrega_real: h('input', { type: 'date', value: venta.fecha_entrega_real || '' }),
-    detalles: h('textarea', { rows: 3 })
-  };
-  controles.detalles.value = venta.detalles || '';
-
-  const selectorVendedor = h('select', {});
-  api.usuarios(true).then(({ usuarios }) => {
-    opciones(selectorVendedor, usuarios.map((u) => ({ valor: u.id, texto: u.nombre + (u.activo ? '' : ' (baja)') })), venta.vendedor_id);
-  });
-
-  const error = h('div', { class: 'aviso aviso--error', style: 'display:none' });
-
-  const guardar = async () => {
-    error.style.display = 'none';
-    try {
-      await api.editarVenta(venta.id, {
-        fecha_venta: controles.fecha_venta.value,
-        vendedor_id: Number(selectorVendedor.value) || venta.vendedor_id,
-        estado: controles.estado.value,
-        cliente_nombre: controles.cliente_nombre.value.trim(),
-        cliente_documento: controles.cliente_documento.value.trim(),
-        cliente_telefono: controles.cliente_telefono.value.trim(),
-        cliente_email: controles.cliente_email.value.trim(),
-        precio_venta: controles.precio_venta.value || null,
-        moneda: controles.moneda.value,
-        sena: controles.sena.value || null,
-        forma_pago: controles.forma_pago.value.trim(),
-        fecha_entrega_estimada: controles.fecha_entrega_estimada.value || null,
-        fecha_entrega_real: controles.fecha_entrega_real.value || null,
-        detalles: controles.detalles.value.trim(),
-        vehiculo: vehiculo.leer()
-      });
-      ref.cerrar();
-      avisar('Venta actualizada.');
-      recargar();
-    } catch (err) {
-      error.textContent = err.message;
-      error.style.display = '';
-    }
-  };
+async function abrirHistorial(venta) {
+  const cuerpo = h('div', {}, h('div', { class: 'cargando' }, 'Cargando historial…'));
 
   const ref = abrirModal({
-    titulo: `Editar venta #${venta.id}`,
-    cuerpo: h(
-      'div',
-      {},
-      error,
-      h('fieldset', {}, h('legend', {}, 'Operacion'),
-        h('div', { class: 'campos' },
-          campo('Fecha de venta', controles.fecha_venta),
-          campo('Vendedor', selectorVendedor),
-          campo('Estado', controles.estado),
-          campo('Cliente', controles.cliente_nombre),
-          campo('Documento', controles.cliente_documento),
-          campo('Telefono', controles.cliente_telefono),
-          campo('Email', controles.cliente_email),
-          campo('Precio', controles.precio_venta),
-          campo('Moneda', controles.moneda),
-          campo('Sena', controles.sena),
-          campo('Forma de pago', controles.forma_pago),
-          campo('Entrega estimada', controles.fecha_entrega_estimada),
-          campo('Entrega real', controles.fecha_entrega_real),
-          campoAncho('Detalles extras', controles.detalles))),
-      h('fieldset', {}, h('legend', {}, 'Auto vendido'), vehiculo.contenedor)
-    ),
-    acciones: [
-      h('button', { class: 'boton', type: 'button', onClick: () => ref.cerrar() }, 'Cancelar'),
-      h('button', { class: 'boton boton--primario', type: 'button', onClick: guardar }, 'Guardar cambios')
-    ]
+    titulo: `Historial de la venta #${venta.id}`,
+    cuerpo,
+    acciones: [h('button', { class: 'boton', type: 'button', onClick: () => ref.cerrar() }, 'Cerrar')]
   });
+
+  try {
+    const { historial } = await api.historialVenta(venta.id);
+    vaciar(cuerpo).append(
+      h('p', { class: 'tenue' }, 'Queda registrado todo lo que se hizo sobre esta operacion, con quien lo hizo y cuando.'),
+      historial.length
+        ? h(
+            'div',
+            {},
+            ...historial.map((linea) =>
+              h(
+                'div',
+                { class: 'nota' },
+                h(
+                  'div',
+                  { class: 'nota__meta' },
+                  h('strong', {}, `${ACCIONES[linea.accion] || ''} ${linea.usuario_nombre || 'Sistema'}`),
+                  h('span', {}, fechaHora(linea.creado_en))
+                ),
+                h('div', { class: 'nota__texto' }, linea.resumen || linea.entidad)
+              )
+            )
+          )
+        : h('p', { class: 'tenue' }, 'Todavia no hay movimientos registrados.')
+    );
+  } catch (error) {
+    vaciar(cuerpo).append(h('div', { class: 'aviso aviso--error' }, error.message));
+  }
 }

@@ -94,6 +94,8 @@ export const api = {
   borrarArchivo: (archivoId) => pedir(`/api/documentos/archivos/${archivoId}`, { metodo: 'DELETE' }),
   urlArchivo: (archivoId) => `/api/documentos/archivos/${archivoId}`,
 
+  historialVenta: (id) => pedir(`/api/ventas/${id}/historial`),
+
   // Busqueda y tableros
   buscarDominio: (dominio) => pedir(`/api/buscar/dominio/${encodeURIComponent(dominio)}`),
   estadisticas: () => pedir('/api/buscar/estadisticas'),

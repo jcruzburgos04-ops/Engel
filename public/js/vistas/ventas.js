@@ -3,7 +3,7 @@ import {
   h, vaciar, fecha, dinero, diasHasta, etiquetaEstadoVenta, etiquetaDominio, etiquetaTenencia,
   descripcionVehiculo, barraProgreso, vacio, campo, opciones, ESTADOS_VENTA
 } from '../util.js';
-import { encabezado } from '../app.js';
+import { encabezado, estado as estadoApp } from '../app.js';
 
 function filtrosDeLaUrl() {
   const partes = location.hash.split('?');
@@ -72,7 +72,6 @@ function fila(venta) {
 
 export async function vistaVentas() {
   const filtros = filtrosDeLaUrl();
-  const { usuarios } = await api.usuarios(true);
 
   const contenedor = h('div', {});
   const resultados = h('section', { class: 'tarjeta' }, h('div', { class: 'cargando' }, 'Buscando…'));
@@ -84,11 +83,10 @@ export async function vistaVentas() {
       [{ valor: '', texto: 'Todos los estados' }, ...Object.entries(ESTADOS_VENTA).map(([valor, info]) => ({ valor, texto: info.texto }))],
       filtros.estado
     ),
-    vendedor_id: opciones(
-      h('select', {}),
-      [{ valor: '', texto: 'Todos los vendedores' }, ...usuarios.map((u) => ({ valor: u.id, texto: u.nombre + (u.activo ? '' : ' (baja)') }))],
-      filtros.vendedor_id
-    ),
+    vendedor_id: h('input', {
+      type: 'checkbox',
+      checked: String(filtros.vendedor_id) === String(estadoApp.usuario.id)
+    }),
     tenencia: opciones(
       h('select', {}),
       [{ valor: '', texto: 'Propios y consigna' }, { valor: 'propio', texto: 'Solo propios' }, { valor: 'consigna', texto: 'Solo consigna' }],
@@ -102,7 +100,7 @@ export async function vistaVentas() {
     return {
       q: controles.q.value.trim(),
       estado: controles.estado.value,
-      vendedor_id: controles.vendedor_id.value,
+      vendedor_id: controles.vendedor_id.checked ? String(estadoApp.usuario.id) : '',
       tenencia: controles.tenencia.value,
       desde: controles.desde.value,
       hasta: controles.hasta.value,
@@ -207,7 +205,13 @@ export async function vistaVentas() {
         { class: 'filtros' },
         (() => { const c = campo('Buscar', controles.q); c.classList.add('campo--busqueda'); return c; })(),
         campo('Estado', controles.estado),
-        campo('Vendedor', controles.vendedor_id),
+        h(
+          'label',
+          { class: 'campo', style: 'flex:0 0 auto' },
+          h('span', { style: 'font-size:.8rem;font-weight:600;color:var(--texto-suave)' }, '\u00a0'),
+          h('span', { style: 'display:flex;align-items:center;gap:.4rem;padding:.5rem 0;white-space:nowrap' },
+            controles.vendedor_id, 'Solo mis ventas')
+        ),
         campo('Origen', controles.tenencia),
         campo('Desde', controles.desde),
         campo('Hasta', controles.hasta),
@@ -221,7 +225,10 @@ export async function vistaVentas() {
               class: 'boton',
               type: 'button',
               onClick: () => {
-                for (const control of Object.values(controles)) control.value = '';
+                for (const control of Object.values(controles)) {
+                  if (control.type === 'checkbox') control.checked = false;
+                  else control.value = '';
+                }
                 buscar({ q: '', estado: '', vendedor_id: '', tenencia: '', desde: '', hasta: '', entrega_vencida: '', pagina: 1 });
               }
             },

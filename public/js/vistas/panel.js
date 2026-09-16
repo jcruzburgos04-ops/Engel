@@ -77,7 +77,7 @@ export async function vistaPanel() {
           h(
             'table',
             {},
-            h('thead', {}, h('tr', {}, h('th', {}, 'Dominio'), h('th', {}, 'Vehiculo / cliente'), h('th', { class: 'oculta-movil' }, 'Vendedor'), h('th', {}, 'Entrega'), h('th', {}, 'Documentacion'), h('th', {}, 'Estado'))),
+            h('thead', {}, h('tr', {}, h('th', {}, 'Dominio'), h('th', {}, 'Vehiculo / cliente'), h('th', { class: 'oculta-movil' }, 'Vendio'), h('th', {}, 'Entrega'), h('th', {}, 'Documentacion'), h('th', {}, 'Estado'))),
             h('tbody', {}, ...vencidas.ventas.map(filaEntrega))
           )
         )
@@ -87,74 +87,41 @@ export async function vistaPanel() {
 
   contenedor.append(
     h(
-      'div',
-      { class: 'grilla grilla--2' },
-
+      'section',
+      { class: 'tarjeta' },
       h(
-        'section',
-        { class: 'tarjeta' },
-        h(
-          'div',
-          { class: 'tarjeta__titulo' },
-          'Ultimas ventas cargadas',
-          h('span', { class: 'derecha' }, h('a', { class: 'boton boton--chico', href: '#/ventas' }, 'Ver todas'))
-        ),
-        proximas.ventas.length
-          ? h(
-              'div',
-              { class: 'tabla-scroll' },
-              h(
-                'table',
-                {},
-                h('thead', {}, h('tr', {}, h('th', {}, 'Dominio'), h('th', {}, 'Vehiculo / cliente'), h('th', { class: 'oculta-movil' }, 'Vendedor'), h('th', {}, 'Entrega'), h('th', {}, 'Doc.'), h('th', {}, 'Estado'))),
-                h('tbody', {}, ...proximas.ventas.map(filaEntrega))
-              )
-            )
-          : vacio('Todavia no hay ventas cargadas.', '🚗')
+        'div',
+        { class: 'tarjeta__titulo' },
+        'Ultimas ventas cargadas',
+        h('span', { class: 'derecha' }, h('a', { class: 'boton boton--chico', href: '#/ventas' }, 'Ver todas'))
       ),
-
-      h(
-        'section',
-        { class: 'tarjeta' },
-        h('div', { class: 'tarjeta__titulo' }, 'Ventas por vendedor'),
-        stats.porVendedor.length
-          ? h(
-              'div',
-              { class: 'tabla-scroll' },
-              h(
-                'table',
-                {},
-                h('thead', {}, h('tr', {}, h('th', {}, 'Vendedor'), h('th', { class: 'numero' }, 'Ventas'), h('th', { class: 'numero' }, 'Entregadas'))),
-                h(
-                  'tbody',
-                  {},
-                  ...stats.porVendedor.map((v) =>
-                    h(
-                      'tr',
-                      {},
-                      h('td', {}, h('a', { href: `#/ventas?vendedor_id=${v.id}` }, v.nombre)),
-                      h('td', { class: 'numero' }, String(v.ventas)),
-                      h('td', { class: 'numero' }, String(v.entregadas))
-                    )
-                  )
-                )
-              )
+      proximas.ventas.length
+        ? h(
+            'div',
+            { class: 'tabla-scroll' },
+            h(
+              'table',
+              {},
+              h('thead', {}, h('tr', {},
+                h('th', {}, 'Dominio'), h('th', {}, 'Vehiculo / cliente'),
+                h('th', { class: 'oculta-movil' }, 'Vendio'), h('th', {}, 'Entrega'),
+                h('th', {}, 'Doc.'), h('th', {}, 'Estado'))),
+              h('tbody', {}, ...proximas.ventas.map(filaEntrega))
             )
-          : vacio('Todavia no hay vendedores con ventas.', '👥'),
-
+          )
+        : vacio('Todavia no hay ventas cargadas.', '\u{1F697}'),
+      h(
+        'div',
+        { class: 'tarjeta__cuerpo tarjeta__cuerpo--compacto' },
         h(
           'div',
-          { class: 'tarjeta__cuerpo tarjeta__cuerpo--compacto' },
-          h(
-            'div',
-            { class: 'tenue' },
-            'Origen de los autos vendidos: ',
-            stats.porTenencia.length
-              ? stats.porTenencia
-                  .map((t) => `${t.tenencia === 'consigna' ? 'consigna' : 'propios'} ${t.cantidad}`)
-                  .join(' · ')
-              : 'sin datos'
-          )
+          { class: 'tenue' },
+          'Origen de los autos vendidos: ',
+          stats.porTenencia.length
+            ? stats.porTenencia
+                .map((t) => `${t.tenencia === 'consigna' ? 'consigna' : 'propios'} ${t.cantidad}`)
+                .join(' \u00b7 ')
+            : 'sin datos'
         )
       )
     )

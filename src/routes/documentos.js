@@ -3,8 +3,9 @@
 const express = require('express');
 
 const db = require('../db');
+const auditoria = require('../lib/auditoria');
 const consultas = require('../lib/consultas');
-const { ESTADOS_DOCUMENTO, TIPOS_DOCUMENTO, TIPOS_VALIDOS } = require('../lib/documentos');
+const { ESTADOS_DOCUMENTO, TIPOS_DOCUMENTO, etiquetaDocumento } = require('../lib/documentos');
 const { requiereSesion, requiereAdmin } = require('../lib/auth');
 const { subida, rutaAbsoluta, borrarArchivo, nombreRelativo } = require('../lib/almacenamiento');
 const { asyncHandler, badRequest, noEncontrado } = require('../lib/errores');
@@ -47,11 +48,30 @@ router.patch(
     const campos = Object.keys(cambios);
     if (!campos.length) throw badRequest('No hay cambios para guardar.');
 
-    db.prepare(
-      `UPDATE documentos SET ${campos.map((c) => `${c} = @${c}`).join(', ')},
-         actualizado_en = datetime('now'), actualizado_por = @usuario
-       WHERE id = @id`
-    ).run({ ...cambios, id, usuario: req.usuario.id });
+    const vehiculo = db.prepare('SELECT dominio FROM vehiculos WHERE id = ?').get(documento.vehiculo_id);
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE documentos SET ${campos.map((c) => `${c} = @${c}`).join(', ')},
+           actualizado_en = datetime('now'), actualizado_por = @usuario
+         WHERE id = @id`
+      ).run({ ...cambios, id, usuario: req.usuario.id });
+
+      const detalle = auditoria.describirCambios(documento, cambios, {
+        estado: 'estado',
+        observaciones: 'observaciones'
+      });
+      auditoria.registrar({
+        entidad: 'documento',
+        entidadId: id,
+        ventaId: documento.venta_id,
+        accion: 'editar',
+        resumen: `${etiquetaDocumento(documento.tipo)} de ${vehiculo.dominio} — ${detalle}`,
+        antes: { estado: documento.estado, observaciones: documento.observaciones },
+        despues: cambios,
+        usuario: req.usuario
+      });
+    })();
 
     res.json({ documentacion: consultas.documentosDeVenta(documento.venta_id) });
   })
@@ -76,16 +96,14 @@ router.post(
       VALUES (?, ?, ?, ?, ?, ?)
     `);
 
+    const vehiculo = db.prepare('SELECT dominio FROM vehiculos WHERE id = ?').get(documento.vehiculo_id);
+
     db.transaction(() => {
+      const cargados = [];
       for (const archivo of req.files) {
-        insertar.run(
-          id,
-          archivo.originalname.slice(0, 200),
-          nombreRelativo(archivo),
-          archivo.mimetype,
-          archivo.size,
-          req.usuario.id
-        );
+        const nombre = archivo.originalname.slice(0, 200);
+        insertar.run(id, nombre, nombreRelativo(archivo), archivo.mimetype, archivo.size, req.usuario.id);
+        cargados.push({ nombre, tamano: archivo.size });
       }
       // Al subir documentacion el item pasa a estado "ok" si seguia pendiente.
       if (documento.estado === 'pendiente') {
@@ -94,6 +112,16 @@ router.post(
            WHERE id = ?`
         ).run(req.usuario.id, id);
       }
+
+      auditoria.registrar({
+        entidad: 'archivo',
+        entidadId: id,
+        ventaId: documento.venta_id,
+        accion: 'crear',
+        resumen: `Subio ${cargados.length} archivo(s) a ${etiquetaDocumento(documento.tipo)} de ${vehiculo.dominio}: ${cargados.map((a) => a.nombre).join(', ')}`,
+        despues: cargados,
+        usuario: req.usuario
+      });
     })();
 
     res.status(201).json({ documentacion: consultas.documentosDeVenta(documento.venta_id) });
@@ -123,7 +151,18 @@ router.delete(
     }
 
     const documento = buscarDocumento.get(archivo.documento_id);
-    db.prepare('DELETE FROM archivos WHERE id = ?').run(archivoId);
+    db.transaction(() => {
+      db.prepare('DELETE FROM archivos WHERE id = ?').run(archivoId);
+      auditoria.registrar({
+        entidad: 'archivo',
+        entidadId: archivoId,
+        ventaId: documento.venta_id,
+        accion: 'borrar',
+        resumen: `Borro el archivo "${archivo.nombre_original}" de ${etiquetaDocumento(documento.tipo)}`,
+        antes: archivo,
+        usuario: req.usuario
+      });
+    })();
     borrarArchivo(archivo.nombre_archivo);
 
     res.json({ documentacion: consultas.documentosDeVenta(documento.venta_id) });

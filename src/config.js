@@ -36,6 +36,12 @@ module.exports = {
   maxFileBytes: (Number(process.env.MAX_FILE_MB) || 25) * 1024 * 1024,
   sessionMaxAgeMs: 12 * 60 * 60 * 1000,
   secureCookies: process.env.SECURE_COOKIES === 'true',
+  respaldos: {
+    // Cada cuantos minutos se hace una copia automatica de la base (0 = nunca).
+    cadaMinutos: Number(process.env.RESPALDO_CADA_MINUTOS ?? 180),
+    // Cuantas copias se conservan antes de ir borrando las mas viejas.
+    conservar: Number(process.env.RESPALDOS_A_CONSERVAR ?? 24)
+  },
   admin: {
     email: process.env.ADMIN_EMAIL || 'admin@engel.com',
     password: process.env.ADMIN_PASSWORD || 'engel1234',

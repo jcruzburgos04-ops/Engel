@@ -1,6 +1,7 @@
 'use strict';
 
 const db = require('../db');
+const auditoria = require('./auditoria');
 const vehiculos = require('./vehiculos');
 const { TIPOS_DOCUMENTO } = require('./documentos');
 const { badRequest, conflicto, noEncontrado } = require('./errores');
@@ -8,6 +9,23 @@ const v = require('./validacion');
 
 const ESTADOS_VENTA = ['pendiente', 'en_preparacion', 'listo_entrega', 'entregado', 'cancelado'];
 const MONEDAS = ['ARS', 'USD'];
+
+const ETIQUETAS_VENTA = {
+  fecha_venta: 'fecha de venta',
+  vendedor_id: 'vendedor',
+  cliente_nombre: 'cliente',
+  cliente_documento: 'documento del cliente',
+  cliente_telefono: 'telefono',
+  cliente_email: 'email',
+  precio_venta: 'precio',
+  moneda: 'moneda',
+  forma_pago: 'forma de pago',
+  sena: 'sena',
+  estado: 'estado',
+  fecha_entrega_estimada: 'entrega estimada',
+  fecha_entrega_real: 'entrega real',
+  detalles: 'detalles'
+};
 
 const insertarDocumento = db.prepare(`
   INSERT OR IGNORE INTO documentos (venta_id, vehiculo_id, rol, tipo)
@@ -117,6 +135,16 @@ const crearVentaTx = db.transaction((datos, permutas, usuario) => {
   const ventaId = Number(info.lastInsertRowid);
   generarChecklist(ventaId, vehiculo.id, 'venta');
 
+  auditoria.registrar({
+    entidad: 'venta',
+    entidadId: ventaId,
+    ventaId,
+    accion: 'crear',
+    resumen: `Se cargo la venta de ${vehiculo.dominio} a ${datos.cliente_nombre}`,
+    despues: db.prepare('SELECT * FROM ventas WHERE id = ?').get(ventaId),
+    usuario
+  });
+
   for (const permuta of permutas) {
     const vehiculoPermuta = vehiculos.guardarPorDominio(permuta.vehiculo);
     insertarPermuta.run({
@@ -127,6 +155,16 @@ const crearVentaTx = db.transaction((datos, permutas, usuario) => {
       observaciones: permuta.observaciones
     });
     generarChecklist(ventaId, vehiculoPermuta.id, 'permuta');
+
+    auditoria.registrar({
+      entidad: 'permuta',
+      entidadId: vehiculoPermuta.id,
+      ventaId,
+      accion: 'crear',
+      resumen: `Se vinculo la permuta ${vehiculoPermuta.dominio}`,
+      despues: { dominio: vehiculoPermuta.dominio, valor_tomado: permuta.valor_tomado, moneda: permuta.moneda },
+      usuario
+    });
   }
 
   return ventaId;
@@ -148,7 +186,7 @@ function crear(cuerpo, usuario) {
   return crearVentaTx({ ...datos, vehiculo: cuerpo.vehiculo }, permutas, usuario);
 }
 
-const actualizarVentaTx = db.transaction((id, datos, vehiculoDatos) => {
+const actualizarVentaTx = db.transaction((id, datos, vehiculoDatos, usuario, origen) => {
   const venta = db.prepare('SELECT * FROM ventas WHERE id = ?').get(id);
   if (!venta) throw noEncontrado('No se encontro la venta.');
 
@@ -158,19 +196,51 @@ const actualizarVentaTx = db.transaction((id, datos, vehiculoDatos) => {
     db.prepare(
       `UPDATE ventas SET ${asignaciones}, actualizado_en = datetime('now') WHERE id = @id`
     ).run({ ...datos, id });
+
+    const resumen = auditoria.describirCambios(venta, datos, ETIQUETAS_VENTA);
+    if (resumen) {
+      auditoria.registrar({
+        entidad: 'venta',
+        entidadId: id,
+        ventaId: id,
+        accion: 'editar',
+        resumen,
+        antes: Object.fromEntries(campos.map((campo) => [campo, venta[campo]])),
+        despues: datos,
+        usuario,
+        origen
+      });
+    }
   }
 
-  if (vehiculoDatos) vehiculos.actualizarPorId(venta.vehiculo_id, vehiculoDatos);
+  if (vehiculoDatos) {
+    const antes = vehiculos.obtenerPorId(venta.vehiculo_id);
+    const despues = vehiculos.actualizarPorId(venta.vehiculo_id, vehiculoDatos);
+    const resumen = auditoria.describirCambios(antes, despues);
+    if (resumen) {
+      auditoria.registrar({
+        entidad: 'vehiculo',
+        entidadId: venta.vehiculo_id,
+        ventaId: id,
+        accion: 'editar',
+        resumen: `Datos del auto ${despues.dominio} — ${resumen}`,
+        antes,
+        despues,
+        usuario,
+        origen
+      });
+    }
+  }
   return id;
 });
 
-function actualizar(id, cuerpo) {
+function actualizar(id, cuerpo, usuario, origen) {
   const datos = validarDatosVenta(cuerpo, { parcial: true });
   if (datos.vendedor_id) verificarVendedor(datos.vendedor_id);
-  return actualizarVentaTx(id, datos, cuerpo.vehiculo);
+  return actualizarVentaTx(id, datos, cuerpo.vehiculo, usuario, origen);
 }
 
-function agregarPermuta(ventaId, cuerpo) {
+function agregarPermuta(ventaId, cuerpo, usuario) {
   const venta = db.prepare('SELECT id, vehiculo_id FROM ventas WHERE id = ?').get(ventaId);
   if (!venta) throw noEncontrado('No se encontro la venta.');
 
@@ -192,14 +262,25 @@ function agregarPermuta(ventaId, cuerpo) {
       observaciones: permuta.observaciones
     });
     generarChecklist(ventaId, vehiculo.id, 'permuta');
+
+    auditoria.registrar({
+      entidad: 'permuta',
+      entidadId: vehiculo.id,
+      ventaId,
+      accion: 'crear',
+      resumen: `Se vinculo la permuta ${vehiculo.dominio}`,
+      despues: { dominio: vehiculo.dominio, valor_tomado: permuta.valor_tomado, moneda: permuta.moneda },
+      usuario
+    });
     return vehiculo;
   })();
 }
 
 // Al quitar una permuta se borra tambien su checklist y sus archivos de esa venta.
-const quitarPermutaTx = db.transaction((permutaId) => {
+const quitarPermutaTx = db.transaction((permutaId, usuario) => {
   const permuta = db.prepare('SELECT * FROM permutas WHERE id = ?').get(permutaId);
   if (!permuta) throw noEncontrado('No se encontro la permuta.');
+  const vehiculoPermuta = vehiculos.obtenerPorId(permuta.vehiculo_id);
 
   const archivos = db
     .prepare(
@@ -214,12 +295,27 @@ const quitarPermutaTx = db.transaction((permutaId) => {
     permuta.vehiculo_id
   );
   db.prepare('DELETE FROM permutas WHERE id = ?').run(permutaId);
+
+  auditoria.registrar({
+    entidad: 'permuta',
+    entidadId: permuta.vehiculo_id,
+    ventaId: permuta.venta_id,
+    accion: 'borrar',
+    resumen: `Se desvinculo la permuta ${vehiculoPermuta.dominio}`,
+    antes: { ...permuta, dominio: vehiculoPermuta.dominio },
+    usuario
+  });
+
   return archivos.map((a) => a.nombre_archivo);
 });
 
-const eliminarVentaTx = db.transaction((id) => {
-  const venta = db.prepare('SELECT id FROM ventas WHERE id = ?').get(id);
+const eliminarVentaTx = db.transaction((id, usuario) => {
+  const venta = db.prepare('SELECT * FROM ventas WHERE id = ?').get(id);
   if (!venta) throw noEncontrado('No se encontro la venta.');
+  const vehiculo = vehiculos.obtenerPorId(venta.vehiculo_id);
+  const permutasBorradas = db.prepare('SELECT * FROM permutas WHERE venta_id = ?').all(id);
+  const documentosBorrados = db.prepare('SELECT * FROM documentos WHERE venta_id = ?').all(id);
+  const notasBorradas = db.prepare('SELECT * FROM notas WHERE venta_id = ?').all(id);
 
   const archivos = db
     .prepare(
@@ -230,6 +326,18 @@ const eliminarVentaTx = db.transaction((id) => {
     .all(id);
 
   db.prepare('DELETE FROM ventas WHERE id = ?').run(id);
+
+  // Se guarda la operacion entera en el historial para poder reconstruirla.
+  auditoria.registrar({
+    entidad: 'venta',
+    entidadId: id,
+    ventaId: id,
+    accion: 'borrar',
+    resumen: `Se borro la venta #${id} de ${vehiculo.dominio} a ${venta.cliente_nombre}`,
+    antes: { venta, vehiculo, permutas: permutasBorradas, documentos: documentosBorrados, notas: notasBorradas },
+    usuario
+  });
+
   return archivos.map((a) => a.nombre_archivo);
 });
 

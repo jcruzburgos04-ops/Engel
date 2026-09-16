@@ -125,3 +125,45 @@ CREATE TABLE IF NOT EXISTS notas (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notas_venta ON notas (venta_id);
+
+-- Historial de cambios. Guarda el antes y el despues de cada modificacion,
+-- asi nada se pierde aunque alguien pise un dato por error.
+CREATE TABLE IF NOT EXISTS auditoria (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad     TEXT NOT NULL,
+  entidad_id  INTEGER,
+  venta_id    INTEGER,
+  accion      TEXT NOT NULL CHECK (accion IN ('crear', 'editar', 'borrar')),
+  resumen     TEXT NOT NULL DEFAULT '',
+  antes       TEXT,
+  despues     TEXT,
+  usuario_id  INTEGER REFERENCES usuarios (id),
+  usuario_nombre TEXT NOT NULL DEFAULT '',
+  origen      TEXT NOT NULL DEFAULT '',
+  creado_en   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_auditoria_venta ON auditoria (venta_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_auditoria_entidad ON auditoria (entidad, entidad_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON auditoria (creado_en DESC);
+
+-- Borradores de formularios a medio completar. Se guardan solos mientras se
+-- escribe, para no perder la carga si se cierra el navegador o se corta la luz.
+CREATE TABLE IF NOT EXISTS borradores (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  usuario_id     INTEGER NOT NULL REFERENCES usuarios (id) ON DELETE CASCADE,
+  clave          TEXT NOT NULL,
+  contenido      TEXT NOT NULL,
+  actualizado_en TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE (usuario_id, clave)
+);
+
+-- Contador global de cambios: la web lo consulta para darse cuenta de que
+-- otra persona cargo algo mientras tanto.
+CREATE TABLE IF NOT EXISTS estado_datos (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  version   INTEGER NOT NULL DEFAULT 0,
+  cambio_en TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+INSERT OR IGNORE INTO estado_datos (id, version) VALUES (1, 0);

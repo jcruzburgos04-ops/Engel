@@ -12,7 +12,14 @@ fs.mkdirSync(config.uploadDir, { recursive: true });
 
 const db = new Database(config.dbPath);
 
+// WAL permite leer mientras otro escribe, que es lo que pasa cuando varios
+// usan la web al mismo tiempo.
 db.pragma('journal_mode = WAL');
+// synchronous = FULL hace que cada cambio confirmado ya este en el disco:
+// un corte de luz no se lleva la ultima carga.
+db.pragma('synchronous = FULL');
+// Si otra escritura tiene la base tomada, esperar en vez de fallar.
+db.pragma('busy_timeout = 10000');
 db.pragma('foreign_keys = ON');
 
 function migrate() {

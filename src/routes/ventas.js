@@ -3,6 +3,7 @@
 const express = require('express');
 
 const db = require('../db');
+const auditoria = require('../lib/auditoria');
 const consultas = require('../lib/consultas');
 const ventasRepo = require('../lib/ventas');
 const { requiereSesion, requiereAdmin } = require('../lib/auth');
@@ -41,7 +42,7 @@ router.patch(
   '/:id',
   asyncHandler((req, res) => {
     const id = v.idRequerido(req.params.id, 'venta');
-    ventasRepo.actualizar(id, req.body);
+    ventasRepo.actualizar(id, req.body, req.usuario, req.get('x-origen-cambio') || '');
     res.json({ venta: consultas.obtenerVenta(id) });
   })
 );
@@ -51,7 +52,7 @@ router.delete(
   requiereAdmin,
   asyncHandler((req, res) => {
     const id = v.idRequerido(req.params.id, 'venta');
-    const archivos = ventasRepo.eliminar(id);
+    const archivos = ventasRepo.eliminar(id, req.usuario);
     borrarArchivos(archivos);
     res.json({ ok: true });
   })
@@ -63,7 +64,7 @@ router.post(
   '/:id/permutas',
   asyncHandler((req, res) => {
     const id = v.idRequerido(req.params.id, 'venta');
-    ventasRepo.agregarPermuta(id, req.body);
+    ventasRepo.agregarPermuta(id, req.body, req.usuario);
     res.status(201).json({ venta: consultas.obtenerVenta(id) });
   })
 );
@@ -77,7 +78,7 @@ router.delete(
     const permuta = db.prepare('SELECT venta_id FROM permutas WHERE id = ?').get(permutaId);
     if (!permuta || permuta.venta_id !== id) throw noEncontrado('No se encontro la permuta.');
 
-    const archivos = ventasRepo.quitarPermuta(permutaId);
+    const archivos = ventasRepo.quitarPermuta(permutaId, req.usuario);
     borrarArchivos(archivos);
     res.json({ venta: consultas.obtenerVenta(id) });
   })
@@ -94,11 +95,20 @@ router.post(
     const venta = db.prepare('SELECT id FROM ventas WHERE id = ?').get(id);
     if (!venta) throw noEncontrado('No se encontro la venta.');
 
-    db.prepare('INSERT INTO notas (venta_id, usuario_id, texto) VALUES (?, ?, ?)').run(
-      id,
-      req.usuario.id,
-      texto
-    );
+    db.transaction(() => {
+      const info = db
+        .prepare('INSERT INTO notas (venta_id, usuario_id, texto) VALUES (?, ?, ?)')
+        .run(id, req.usuario.id, texto);
+      auditoria.registrar({
+        entidad: 'nota',
+        entidadId: Number(info.lastInsertRowid),
+        ventaId: id,
+        accion: 'crear',
+        resumen: `Agrego un detalle: ${texto.slice(0, 160)}`,
+        despues: { texto },
+        usuario: req.usuario
+      });
+    })();
     res.status(201).json({ venta: consultas.obtenerVenta(id) });
   })
 );
@@ -115,8 +125,29 @@ router.delete(
       throw badRequest('Solo podes borrar tus propias notas.');
     }
 
-    db.prepare('DELETE FROM notas WHERE id = ?').run(notaId);
+    db.transaction(() => {
+      db.prepare('DELETE FROM notas WHERE id = ?').run(notaId);
+      auditoria.registrar({
+        entidad: 'nota',
+        entidadId: notaId,
+        ventaId: id,
+        accion: 'borrar',
+        resumen: `Borro un detalle: ${nota.texto.slice(0, 160)}`,
+        antes: nota,
+        usuario: req.usuario
+      });
+    })();
     res.json({ venta: consultas.obtenerVenta(id) });
+  })
+);
+
+// --- Historial de la operacion -------------------------------------------
+
+router.get(
+  '/:id/historial',
+  asyncHandler((req, res) => {
+    const id = v.idRequerido(req.params.id, 'venta');
+    res.json({ historial: auditoria.historialDeVenta(id) });
   })
 );
 

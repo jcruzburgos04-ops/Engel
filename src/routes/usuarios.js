@@ -4,6 +4,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 
 const db = require('../db');
+const auditoria = require('../lib/auditoria');
 const { requiereSesion, requiereAdmin } = require('../lib/auth');
 const { asyncHandler, badRequest, conflicto, noEncontrado } = require('../lib/errores');
 const v = require('../lib/validacion');
@@ -17,8 +18,7 @@ router.get(
     const incluirInactivos = req.query.inactivos === 'true';
     const usuarios = db
       .prepare(
-        `SELECT u.id, u.nombre, u.email, u.rol, u.activo, u.creado_en,
-                (SELECT COUNT(*) FROM ventas v WHERE v.vendedor_id = u.id AND v.estado != 'cancelado') AS ventas
+        `SELECT u.id, u.nombre, u.email, u.rol, u.activo, u.creado_en
          FROM usuarios u
          WHERE (@todos = 1 OR u.activo = 1)
          ORDER BY u.activo DESC, u.nombre`
@@ -42,12 +42,23 @@ router.post(
     const existente = db.prepare('SELECT id FROM usuarios WHERE email = ? COLLATE NOCASE').get(email);
     if (existente) throw conflicto('Ya existe un usuario con ese email.');
 
-    const info = db
-      .prepare(
-        `INSERT INTO usuarios (nombre, email, password_hash, rol, activo)
-         VALUES (?, ?, ?, ?, 1)`
-      )
-      .run(nombre, email, bcrypt.hashSync(password, 10), rol);
+    const info = db.transaction(() => {
+      const resultado = db
+        .prepare(
+          `INSERT INTO usuarios (nombre, email, password_hash, rol, activo)
+           VALUES (?, ?, ?, ?, 1)`
+        )
+        .run(nombre, email, bcrypt.hashSync(password, 10), rol);
+      auditoria.registrar({
+        entidad: 'usuario',
+        entidadId: Number(resultado.lastInsertRowid),
+        accion: 'crear',
+        resumen: `Alta de ${nombre} (${email}) como ${rol}`,
+        despues: { nombre, email, rol },
+        usuario: req.usuario
+      });
+      return resultado;
+    })();
 
     res.status(201).json({
       usuario: db
@@ -88,9 +99,26 @@ router.patch(
     const campos = Object.keys(cambios);
     if (!campos.length) throw badRequest('No hay cambios para guardar.');
 
-    db.prepare(
-      `UPDATE usuarios SET ${campos.map((c) => `${c} = @${c}`).join(', ')} WHERE id = @id`
-    ).run({ ...cambios, id });
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE usuarios SET ${campos.map((c) => `${c} = @${c}`).join(', ')} WHERE id = @id`
+      ).run({ ...cambios, id });
+
+      const visibles = { ...cambios };
+      if (visibles.password_hash) visibles.password_hash = '(contrasena nueva)';
+      const detalle = auditoria.describirCambios(usuario, visibles, {
+        nombre: 'nombre', rol: 'rol', activo: 'activo', password_hash: 'contrasena'
+      });
+      auditoria.registrar({
+        entidad: 'usuario',
+        entidadId: id,
+        accion: 'editar',
+        resumen: `${usuario.nombre} — ${detalle}`,
+        antes: { nombre: usuario.nombre, rol: usuario.rol, activo: usuario.activo },
+        despues: visibles,
+        usuario: req.usuario
+      });
+    })();
 
     res.json({
       usuario: db

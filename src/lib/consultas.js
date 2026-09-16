@@ -305,19 +305,6 @@ function estadisticas() {
     )
     .get();
 
-  const porVendedor = db
-    .prepare(
-      `SELECT u.id, u.nombre,
-              COUNT(v.id) AS ventas,
-              SUM(CASE WHEN v.estado = 'entregado' THEN 1 ELSE 0 END) AS entregadas
-       FROM usuarios u
-       LEFT JOIN ventas v ON v.vendedor_id = u.id AND v.estado != 'cancelado'
-       WHERE u.activo = 1
-       GROUP BY u.id
-       ORDER BY ventas DESC, u.nombre`
-    )
-    .all();
-
   const porTenencia = db
     .prepare(
       `SELECT ve.tenencia, COUNT(*) AS cantidad
@@ -327,7 +314,9 @@ function estadisticas() {
     )
     .all();
 
-  return { ...base, documentos_pendientes: documentacion.pendientes, porVendedor, porTenencia };
+  // A proposito no se devuelve nada por vendedor: la web muestra quien vendio
+  // cada auto, pero no lleva un contador por persona.
+  return { ...base, documentos_pendientes: documentacion.pendientes, porTenencia };
 }
 
 module.exports = {

@@ -6,6 +6,8 @@ const cookieParser = require('cookie-parser');
 const multer = require('multer');
 
 const config = require('./config');
+const auditoria = require('./lib/auditoria');
+const respaldos = require('./lib/respaldos');
 const { cargarUsuario } = require('./lib/auth');
 const { ErrorHttp } = require('./lib/errores');
 const { ESTADOS_VENTA, MONEDAS } = require('./lib/ventas');
@@ -48,10 +50,18 @@ app.get('/api/config', (req, res) => {
 
 app.get('/api/salud', (_req, res) => res.json({ ok: true, fecha: new Date().toISOString() }));
 
+// La web consulta esto cada pocos segundos para enterarse de que otra persona
+// cargo o modifico algo mientras tanto.
+app.get('/api/estado-datos', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(auditoria.versionDatos());
+});
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/usuarios', require('./routes/usuarios'));
 app.use('/api/ventas', require('./routes/ventas'));
 app.use('/api/documentos', require('./routes/documentos'));
+app.use('/api/borradores', require('./routes/borradores'));
 app.use('/api/buscar', require('./routes/busqueda'));
 app.use('/api/exportar', require('./routes/exportar'));
 
@@ -88,11 +98,33 @@ app.use((error, req, res, _next) => {
 });
 
 if (require.main === module) {
-  app.listen(config.port, () => {
+  const servidor = app.listen(config.port, () => {
     console.log(`[engel] Servidor escuchando en http://localhost:${config.port}`);
     console.log(`[engel] Base de datos: ${config.dbPath}`);
     console.log(`[engel] Documentacion: ${config.uploadDir}`);
   });
+
+  respaldos.iniciarProgramado();
+
+  // Al apagar el servidor se cierra la base de forma ordenada, para que el
+  // ultimo cambio quede escrito en el disco.
+  const apagar = (senal) => () => {
+    console.log(`[engel] ${senal}: cerrando de forma ordenada…`);
+    respaldos.detener();
+    servidor.close(() => {
+      try {
+        require('./db').close();
+      } catch (error) {
+        console.error('[engel] error cerrando la base:', error.message);
+      }
+      process.exit(0);
+    });
+    // Si algo queda colgado, no esperar para siempre.
+    setTimeout(() => process.exit(0), 10000).unref();
+  };
+
+  process.on('SIGTERM', apagar('SIGTERM'));
+  process.on('SIGINT', apagar('SIGINT'));
 }
 
 module.exports = app;

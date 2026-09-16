@@ -75,7 +75,6 @@ export async function vistaUsuarios() {
         h('td', {}, usuario.rol === 'admin'
           ? h('span', { class: 'etiqueta etiqueta--info' }, 'Administrador')
           : h('span', { class: 'etiqueta' }, 'Vendedor')),
-        h('td', { class: 'numero' }, String(usuario.ventas)),
         h('td', {}, usuario.activo
           ? h('span', { class: 'etiqueta etiqueta--ok' }, 'Activo')
           : h('span', { class: 'etiqueta etiqueta--error' }, 'Dado de baja')),
@@ -118,7 +117,7 @@ export async function vistaUsuarios() {
         h(
           'table',
           {},
-          h('thead', {}, h('tr', {}, h('th', {}, 'Nombre'), h('th', {}, 'Email'), h('th', {}, 'Rol'), h('th', { class: 'numero' }, 'Ventas'), h('th', {}, 'Estado'), h('th', {}, 'Alta'), h('th', {}))),
+          h('thead', {}, h('tr', {}, h('th', {}, 'Nombre'), h('th', {}, 'Email'), h('th', {}, 'Rol'), h('th', {}, 'Estado'), h('th', {}, 'Alta'), h('th', {}))),
           h('tbody', {}, ...filas)
         )
       )

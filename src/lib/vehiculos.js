@@ -95,9 +95,17 @@ function guardarPorDominio(datos) {
   return porId.get(existente.id);
 }
 
+// Actualiza solo los campos que vienen en `datos` y deja el resto como estaba.
+// Es lo que permite guardar campo por campo sin borrar lo que no se toco.
 function actualizarPorId(id, datos) {
   const actual = obtenerPorId(id);
-  const limpio = normalizarDatos({ ...datos, dominio: actual.dominio });
+
+  const recibidos = Object.fromEntries(
+    Object.entries(datos || {}).filter(([, valor]) => valor !== undefined)
+  );
+  delete recibidos.dominio;
+
+  const limpio = normalizarDatos({ ...actual, ...recibidos, dominio: actual.dominio });
   actualizar.run({ ...limpio, id: actual.id });
   return porId.get(actual.id);
 }

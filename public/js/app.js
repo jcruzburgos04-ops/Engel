@@ -1,5 +1,7 @@
 import { api, cuandoSePierdeLaSesion } from './api.js';
 import { h, vaciar, avisar, abrirModal, campo } from './util.js';
+import { iniciarGuardado, hayCambiosPendientes, esperarGuardado } from './guardado.js';
+import { iniciarSincronizacion, marcarComoVisto, detenerSincronizacion } from './sincronizacion.js';
 
 import { vistaPanel } from './vistas/panel.js';
 import { vistaVentas } from './vistas/ventas.js';
@@ -116,6 +118,7 @@ async function dibujar() {
   try {
     const vista = await resuelto.definicion.vista(resuelto.params);
     vaciar(contenido).append(vista);
+    marcarComoVisto();
     window.scrollTo(0, 0);
   } catch (error) {
     vaciar(contenido).append(
@@ -152,6 +155,7 @@ function dibujarLogin(mensaje) {
           const { usuario } = await api.login(email.value.trim(), password.value);
           estado.usuario = usuario;
           await refrescarPendientes();
+          iniciarSincronizacion(() => dibujar());
           navegar(rutaActual());
           dibujar();
         } catch (err) {
@@ -189,10 +193,15 @@ function dibujarLogin(mensaje) {
 }
 
 async function cerrarSesion() {
+  if (hayCambiosPendientes()) {
+    avisar('Esperando a que terminen de guardarse los ultimos cambios…');
+    await esperarGuardado();
+  }
   try {
     await api.logout();
   } finally {
     estado.usuario = null;
+    detenerSincronizacion();
     dibujarLogin();
   }
 }
@@ -273,7 +282,12 @@ window.addEventListener('hashchange', dibujar);
     return;
   }
 
-  if (estado.usuario) await refrescarPendientes();
+  iniciarGuardado();
+
+  if (estado.usuario) {
+    await refrescarPendientes();
+    iniciarSincronizacion(() => dibujar());
+  }
   dibujar();
 })();
 

@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { encolar } from '../guardado.js';
 import {
   h, vaciar, avisar, confirmar, fechaHora, tamano, etiquetaDominio,
   barraProgreso, ESTADOS_DOCUMENTO, opciones
@@ -38,14 +39,19 @@ function filaDocumento(item, alActualizar) {
     item.estado
   );
 
-  selector.addEventListener('change', async () => {
-    try {
-      const { documentacion } = await api.editarDocumento(item.id, { estado: selector.value });
-      alActualizar(documentacion);
-    } catch (error) {
-      avisar(error.message, 'error');
-      selector.value = item.estado;
-    }
+  selector.addEventListener('change', () => {
+    encolar({
+      clave: `documento:${item.id}:estado`,
+      metodo: 'PATCH',
+      ruta: `/api/documentos/${item.id}`,
+      cuerpo: { estado: selector.value },
+      descripcion: `Estado de ${item.etiqueta}`,
+      alConfirmar: ({ documentacion }) => alActualizar(documentacion),
+      alFallar: (error) => {
+        avisar(error.message, 'error');
+        selector.value = item.estado;
+      }
+    });
   });
 
   const observaciones = h('input', {
@@ -54,15 +60,20 @@ function filaDocumento(item, alActualizar) {
     style: 'font-size:.82rem'
   });
 
-  observaciones.addEventListener('change', async () => {
-    try {
-      const { documentacion } = await api.editarDocumento(item.id, { observaciones: observaciones.value });
-      avisar('Observacion guardada.');
-      alActualizar(documentacion);
-    } catch (error) {
-      avisar(error.message, 'error');
-    }
-  });
+  const guardarObservacion = () => {
+    if (observaciones.value === (item.observaciones || '')) return;
+    encolar({
+      clave: `documento:${item.id}:observaciones`,
+      metodo: 'PATCH',
+      ruta: `/api/documentos/${item.id}`,
+      cuerpo: { observaciones: observaciones.value },
+      descripcion: `Observaciones de ${item.etiqueta}`,
+      alConfirmar: ({ documentacion }) => alActualizar(documentacion),
+      alFallar: (error) => avisar(error.message, 'error')
+    });
+  };
+  observaciones.addEventListener('change', guardarObservacion);
+  observaciones.addEventListener('blur', guardarObservacion);
 
   const entrada = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const botonSubir = h('button', { class: 'boton boton--chico', type: 'button', onClick: () => entrada.click() }, '⬆️ Subir');
@@ -72,19 +83,36 @@ function filaDocumento(item, alActualizar) {
     const formulario = new FormData();
     for (const archivo of entrada.files) formulario.append('archivos', archivo);
 
+    const cantidad = entrada.files.length;
     botonSubir.disabled = true;
-    botonSubir.textContent = 'Subiendo…';
-    try {
-      const { documentacion } = await api.subirArchivos(item.id, formulario);
-      avisar(`${entrada.files.length} archivo(s) cargados en ${item.etiqueta}.`);
-      alActualizar(documentacion);
-    } catch (error) {
-      avisar(error.message, 'error');
-    } finally {
-      botonSubir.disabled = false;
-      botonSubir.textContent = '⬆️ Subir';
-      entrada.value = '';
+
+    const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+    const ESPERAS = [1000, 3000, 6000, 12000];
+    let ultimoError;
+
+    for (let intento = 0; intento <= ESPERAS.length; intento += 1) {
+      botonSubir.textContent = intento === 0 ? 'Subiendo…' : `Reintentando (${intento})…`;
+      try {
+        const { documentacion } = await api.subirArchivos(item.id, formulario);
+        avisar(`${cantidad} archivo(s) cargados en ${item.etiqueta}.`);
+        alActualizar(documentacion);
+        ultimoError = null;
+        break;
+      } catch (error) {
+        ultimoError = error;
+        // Si el servidor rechazo el archivo, reintentar no sirve.
+        if (error.status >= 400 && error.status < 500) break;
+        if (intento < ESPERAS.length) await esperar(ESPERAS[intento]);
+      }
     }
+
+    if (ultimoError) {
+      avisar(`${ultimoError.message} El archivo no se subio: volve a intentarlo.`, 'error');
+    }
+
+    botonSubir.disabled = false;
+    botonSubir.textContent = '⬆️ Subir';
+    entrada.value = '';
   });
 
   const indicador = { pendiente: '⬜', en_tramite: '🟡', ok: '✅', no_aplica: '➖' }[item.estado] || '⬜';
