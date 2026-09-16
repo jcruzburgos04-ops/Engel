@@ -29,7 +29,10 @@ async function nuevaPagina() {
       localStorage.setItem('engel:clave', 'clave-de-prueba');
     } catch { /* sin localStorage */ }
   }, [FALSO]);
-  p.on('console', (m) => { if (m.type() === 'error') errores.push(`console: ${m.text()}`); });
+  p.on('console', (m) => {
+    if (m.type() === 'error') errores.push(`console: ${m.text()}`);
+    if (globalThis.__TRAZAS__ && m.text().startsWith('TRACE')) console.log('    |', m.text());
+  });
   p.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
   return { ctx, p };
 }
@@ -195,9 +198,26 @@ const menuLucia = await p2.locator('.menu').innerText();
 ok(!/Equipo/.test(menuLucia), 'una vendedora no ve la solapa Equipo');
 
 await p2.click('a[href="#/ventas"]');
-await p2.waitForSelector('table');
+// Esperar a que lleguen las filas, no solo a que exista la tabla: el
+// listado se dibuja vacio y se completa cuando responde la base.
+await p2.waitForSelector('tbody tr', { timeout: 15000 }).catch(() => {});
 const ventasLucia = await p2.locator('tbody tr').count();
 ok(ventasLucia === 1, 've las ventas cargadas por el equipo');
+
+if (ventasLucia !== 1) {
+  console.log('    direccion:', p2.url());
+  console.log('    menu activo:', await p2.locator('.menu__link.activo').innerText().catch(() => '(ninguno)'));
+  console.log('    diagnostico:', (await p2.locator('.contenido').innerText()).slice(0, 220).replace(/\n+/g, ' | '));
+  const detalle = await p2.evaluate(async () => {
+    const { api } = await import('/js/api.js');
+    const salida = {};
+    try { salida.perfil = (await api.configuracion()).usuario; } catch (e) { salida.perfil = e.message; }
+    try { salida.listado = await api.ventas({}); } catch (e) { salida.listado = e.message; }
+    return salida;
+  });
+  console.log('    perfil:', JSON.stringify(detalle.perfil));
+  console.log('    listado:', JSON.stringify(detalle.listado).slice(0, 220));
+}
 
 // ---------------------------------------------------------------------
 console.log('10. Quien no fue invitado queda afuera');

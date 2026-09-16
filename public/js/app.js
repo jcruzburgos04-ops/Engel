@@ -32,8 +32,16 @@ const raiz = document.getElementById('app');
 export function navegar(ruta, { reemplazar = false } = {}) {
   const destino = `#/${String(ruta).replace(/^#?\/?/, '')}`;
   if (location.hash === destino) return dibujar();
-  if (reemplazar) history.replaceState(null, '', destino);
-  else location.hash = destino;
+
+  if (reemplazar) {
+    // replaceState no dispara "hashchange", asi que hay que redibujar a mano:
+    // si no, la pantalla se queda en "Cargando…" para siempre.
+    history.replaceState(null, '', destino);
+    return dibujar();
+  }
+
+  // Cambiar el hash si dispara "hashchange", que es quien redibuja.
+  location.hash = destino;
   return undefined;
 }
 
@@ -102,6 +110,10 @@ export function encabezado(titulo, subtitulo, ...acciones) {
   );
 }
 
+// Numero del ultimo dibujado pedido. Si mientras se arma una pantalla se
+// pide otra, la primera se descarta en vez de pisar a la nueva.
+let dibujadoActual = 0;
+
 async function dibujar() {
   if (!estaConfigurado()) return dibujarSinConfigurar();
   if (!estado.usuario) return dibujarIngreso();
@@ -114,15 +126,19 @@ async function dibujar() {
     return navegar('panel', { reemplazar: true });
   }
 
+  const miTurno = ++dibujadoActual;
+
   const contenido = h('main', { class: 'contenido' }, h('div', { class: 'cargando' }, 'Cargando…'));
   vaciar(raiz).append(h('div', { class: 'app' }, menuLateral(resuelto.definicion.ruta), contenido));
 
   try {
     const vista = await resuelto.definicion.vista(resuelto.params);
+    if (miTurno !== dibujadoActual) return undefined;
     vaciar(contenido).append(vista);
     marcarComoVisto();
     window.scrollTo(0, 0);
   } catch (error) {
+    if (miTurno !== dibujadoActual) return undefined;
     vaciar(contenido).append(
       encabezado('Ups'),
       h('div', { class: 'aviso aviso--error' }, error.message || 'No se pudo cargar la pagina.'),

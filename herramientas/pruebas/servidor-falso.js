@@ -12,7 +12,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { Client } = require('pg');
+const { Pool } = require('pg');
 
 const PUERTO = Number(process.env.PUERTO_FALSO) || 5555;
 const DEPOSITO = path.join(__dirname, 'deposito');
@@ -29,10 +29,21 @@ fs.mkdirSync(DEPOSITO, { recursive: true });
 // contrasenas van a la base: asi recrear la base deja todo como nuevo.
 const sesiones = new Map(); // token -> { id, email }
 
+// Un grupo de conexiones reusables con limite de espera. Abrir una conexion
+// nueva por pedido, sin limite, dejaba pedidos colgados para siempre cuando
+// varias pantallas consultaban a la vez.
+const grupo = new Pool({
+  ...CONEXION,
+  max: 10,
+  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis: 10000,
+  statement_timeout: 15000
+});
+
+grupo.on('error', (error) => console.error('[falso] error en el grupo de conexiones:', error.message));
+
 async function conectar() {
-  const cliente = new Client(CONEXION);
-  await cliente.connect();
-  return cliente;
+  return grupo.connect();
 }
 
 // Corre una consulta con el rol y el usuario correctos, para que las
@@ -50,7 +61,7 @@ async function comoUsuario(usuarioId, trabajo) {
     await cliente.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
-    await cliente.end();
+    cliente.release();
   }
 }
 
@@ -144,7 +155,7 @@ const RUTAS = {
       usuario = rows[0];
       await cliente.query('INSERT INTO auth.claves (email, clave) VALUES ($1, $2)', [limpio, password]);
     } finally {
-      await cliente.end();
+      cliente.release();
     }
 
     const token = crypto.randomUUID();
@@ -165,7 +176,7 @@ const RUTAS = {
       const { rows } = await cliente.query('SELECT id, email FROM auth.users WHERE email = $1', [limpio]);
       usuario = rows[0];
     } finally {
-      await cliente.end();
+      cliente.release();
     }
     if (!usuario) throw new Error('Invalid login credentials');
 
@@ -195,7 +206,7 @@ const RUTAS = {
       try {
         await cliente.query('UPDATE auth.claves SET clave = $1 WHERE email = $2', [password, usuario.email]);
       } finally {
-        await cliente.end();
+        cliente.release();
       }
     }
     return { user: usuario };

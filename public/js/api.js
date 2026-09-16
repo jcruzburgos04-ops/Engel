@@ -19,6 +19,22 @@ export function cuandoSePierdeLaSesion(callback) {
   alPerderSesion = callback;
 }
 
+// Ninguna consulta puede quedar colgada para siempre: si la base no contesta,
+// la pantalla tiene que decirlo en vez de quedarse en "Cargando…".
+const ESPERA_CONSULTA_MS = 20000;
+const ESPERA_ARCHIVO_MS = 180000;
+
+function conLimiteDeEspera(promesa, ms = ESPERA_CONSULTA_MS, queEs = 'La consulta') {
+  let reloj;
+  const limite = new Promise((_, rechazar) => {
+    reloj = setTimeout(
+      () => rechazar(new ErrorApi(`${queEs} tardo demasiado. Revisa tu conexion y proba de nuevo.`, 'TIEMPO')),
+      ms
+    );
+  });
+  return Promise.race([promesa, limite]).finally(() => clearTimeout(reloj));
+}
+
 function revisar({ data, error }) {
   if (error) {
     const traducido = traducirError(error);
@@ -28,9 +44,29 @@ function revisar({ data, error }) {
   return data;
 }
 
+// Sin sesion valida las reglas de la base no devuelven ninguna fila, pero
+// tampoco dan error: la pantalla quedaria vacia sin explicar por que. Por eso
+// se revisa antes y se avisa que hay que volver a ingresar.
+async function clienteConSesion() {
+  const cliente = await conLimiteDeEspera(conectar(), ESPERA_CONSULTA_MS, 'La conexion con la base');
+  const { data } = await conLimiteDeEspera(cliente.auth.getSession(), ESPERA_CONSULTA_MS, 'Tu sesion');
+
+  if (!data || !data.session) {
+    alPerderSesion();
+    throw new ErrorApi('Tu sesion vencio. Volve a ingresar.', 'SIN_SESION');
+  }
+  return cliente;
+}
+
 async function rpc(nombre, args = {}) {
-  const cliente = await conectar();
-  return revisar(await cliente.rpc(nombre, args));
+  const cliente = await clienteConSesion();
+  return revisar(await conLimiteDeEspera(cliente.rpc(nombre, args)));
+}
+
+// Igual que rpc pero para las consultas directas a una tabla.
+async function consultar(armar, queEs = 'La consulta') {
+  const cliente = await clienteConSesion();
+  return conLimiteDeEspera(armar(cliente), ESPERA_CONSULTA_MS, queEs);
 }
 
 // ---------------------------------------------------------------------
@@ -39,12 +75,11 @@ async function rpc(nombre, args = {}) {
 
 async function perfilDe(usuario) {
   if (!usuario) return null;
-  const cliente = await conectar();
-  const { data, error } = await cliente
-    .from('perfiles')
-    .select('id, nombre, email, rol, activo')
-    .eq('id', usuario.id)
-    .maybeSingle();
+  const { data, error } = await consultar(
+    (cliente) =>
+      cliente.from('perfiles').select('id, nombre, email, rol, activo').eq('id', usuario.id).maybeSingle(),
+    'Tu perfil'
+  );
 
   if (error) throw new ErrorApi(traducirError(error).message, error.code);
   if (!data) return { id: usuario.id, email: usuario.email, nombre: '', rol: 'vendedor', activo: false };
@@ -116,10 +151,13 @@ export const api = {
   },
 
   async usuarios(incluirInactivos = false) {
-    const cliente = await conectar();
-    let consulta = cliente.from('perfiles').select('id, nombre, email, rol, activo, creado_en');
-    if (!incluirInactivos) consulta = consulta.eq('activo', true);
-    const data = revisar(await consulta.order('activo', { ascending: false }).order('nombre'));
+    const data = revisar(
+      await consultar((cliente) => {
+        let pedido = cliente.from('perfiles').select('id, nombre, email, rol, activo, creado_en');
+        if (!incluirInactivos) pedido = pedido.eq('activo', true);
+        return pedido.order('activo', { ascending: false }).order('nombre');
+      }, 'La lista del equipo')
+    );
     return { usuarios: data || [] };
   },
 
@@ -279,9 +317,13 @@ export const api = {
         }
 
         const ruta = rutaDeArchivo(documento, archivo.name);
-        const subida = await cliente.storage
-          .from(config.deposito)
-          .upload(ruta, archivo, { cacheControl: '3600', upsert: false, contentType: archivo.type || undefined });
+        const subida = await conLimiteDeEspera(
+          cliente.storage
+            .from(config.deposito)
+            .upload(ruta, archivo, { cacheControl: '3600', upsert: false, contentType: archivo.type || undefined }),
+          ESPERA_ARCHIVO_MS,
+          `La subida de "${archivo.name}"`
+        );
 
         if (subida.error) throw new ErrorApi(traducirError(subida.error).message, subida.error.code);
         subidos.push(ruta);
@@ -344,7 +386,11 @@ export const api = {
 
   async descargarArchivo(archivo) {
     const cliente = await conectar();
-    const { data, error } = await cliente.storage.from(config.deposito).download(archivo.ruta);
+    const { data, error } = await conLimiteDeEspera(
+      cliente.storage.from(config.deposito).download(archivo.ruta),
+      ESPERA_ARCHIVO_MS,
+      `La descarga de "${archivo.nombre_original}"`
+    );
     if (error) throw new ErrorApi(traducirError(error).message, error.code);
     return data;
   },
@@ -366,8 +412,10 @@ export const api = {
   },
 
   async estadoDatos() {
-    const cliente = await conectar();
-    const { data } = await cliente.from('estado_datos').select('version, cambio_en').eq('id', 1).maybeSingle();
+    const { data } = await consultar(
+      (cliente) => cliente.from('estado_datos').select('version, cambio_en').eq('id', 1).maybeSingle(),
+      'El estado de los datos'
+    );
     return data || { version: 0 };
   },
 

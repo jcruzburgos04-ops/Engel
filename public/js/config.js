@@ -6,11 +6,30 @@
 //   Project Settings → API → "Project URL" y "anon public"
 //
 // La clave "anon" es publica a proposito: viaja en cada visita. Lo que
-// protege los datos son las politicas de la base, no esta clave.
+// protege los datos son las reglas de acceso de la base, no esta clave.
+//
+// NUNCA poner aca la clave "service_role" ni la contrasena de la base:
+// esas saltean todas las reglas.
+
+const valores = {
+  url: 'https://vvemfigzzlrtnwmxscoy.supabase.co',
+  clave: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2ZW1maWd6emxydG53bXhzY295Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1NjAxNjgsImV4cCI6MjEwNTEzNjE2OH0.iwHwmYl0Nqt87fwR6tni53zxOytOfZdAxHYOEi0uPgA'
+};
+
+// El panel de Supabase muestra la direccion de varias formas. Se acepta
+// cualquiera: si viene con /rest/v1 o con barra al final, se acomoda sola.
+function acomodarUrl(direccion) {
+  return String(direccion || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/rest\/v1$/i, '')
+    .replace(/\/auth\/v1$/i, '')
+    .replace(/\/+$/, '');
+}
 
 export const config = {
-  url: '',
-  clave: '',
+  url: acomodarUrl(valores.url),
+  clave: String(valores.clave || '').trim(),
 
   // Nombre del deposito de archivos. Solo cambiarlo si lo renombraste.
   deposito: 'documentacion',
@@ -23,8 +42,8 @@ export const config = {
 // Permite probar contra otra instalacion sin tocar este archivo:
 // en la consola del navegador, localStorage.setItem('engel:url', '...')
 try {
-  config.url = localStorage.getItem('engel:url') || config.url;
-  config.clave = localStorage.getItem('engel:clave') || config.clave;
+  config.url = acomodarUrl(localStorage.getItem('engel:url')) || config.url;
+  config.clave = (localStorage.getItem('engel:clave') || '').trim() || config.clave;
 } catch {
   // Sin localStorage se usan los valores de arriba.
 }

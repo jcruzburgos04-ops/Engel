@@ -5,15 +5,22 @@
 const SERVIDOR = globalThis.__ENGEL_SERVIDOR_FALSO__ || 'http://127.0.0.1:5555';
 const LLAVE_TOKEN = 'engel:token-prueba';
 
+// El token vive en memoria y ademas en localStorage (para que sobreviva a una
+// recarga). La memoria manda: asi no hay carrera entre escribir y leer.
+let tokenEnMemoria = null;
+
 function token() {
+  if (tokenEnMemoria) return tokenEnMemoria;
   try {
-    return localStorage.getItem(LLAVE_TOKEN) || null;
+    tokenEnMemoria = localStorage.getItem(LLAVE_TOKEN) || null;
   } catch {
-    return null;
+    tokenEnMemoria = null;
   }
+  return tokenEnMemoria;
 }
 
 function guardarToken(valor) {
+  tokenEnMemoria = valor || null;
   try {
     if (valor) localStorage.setItem(LLAVE_TOKEN, valor);
     else localStorage.removeItem(LLAVE_TOKEN);
