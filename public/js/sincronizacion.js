@@ -3,6 +3,7 @@
 // deja que decida cuando actualizar.
 
 import { h } from './util.js';
+import { api } from './api.js';
 
 const INTERVALO_VISIBLE = 12000;
 const INTERVALO_OCULTO = 60000;
@@ -14,9 +15,7 @@ let alActualizar = null;
 
 async function consultar() {
   try {
-    const respuesta = await fetch('/api/estado-datos', { credentials: 'same-origin' });
-    if (!respuesta.ok) return;
-    const datos = await respuesta.json();
+    const datos = await api.estadoDatos();
 
     if (version === null) {
       version = datos.version;

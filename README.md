@@ -1,8 +1,11 @@
 # Engel · Administracion de ventas
 
 Web para cargar y seguir las ventas de vehiculos de la concesionaria. La usan
-todos los vendedores desde la computadora o el celular, y todo queda guardado
-en una base de datos que se puede consultar y descargar cuando haga falta.
+todos los vendedores desde la computadora o el celular, entrando a un link.
+
+**Es gratis.** No hay servidor que pagar: la web son archivos sueltos que
+publica cualquier hosting gratuito, y los datos y la documentacion viven en
+Supabase, que tiene un plan gratuito con 500 MB de base y 1 GB de archivos.
 
 ## Que resuelve
 
@@ -16,257 +19,253 @@ en una base de datos que se puede consultar y descargar cuando haga falta.
   cada uno y queda guardado para descargarlo despues.
 - **Buscar por dominio**: si pasa algo con un auto, se busca la patente y se
   baja toda su documentacion en un ZIP.
-- **Fecha de entrega estimada**: la web avisa las entregas proximas y las que
-  ya estan vencidas.
+- **Fecha de entrega estimada**: la web avisa las entregas proximas y las
+  vencidas.
 - **Detalles extras**: notas de la operacion con autor y fecha.
 - **Nada se pierde**: todo cambio se guarda solo, se reintenta si falla y
   queda registrado en un historial con el antes y el despues.
 
-## Arrancar en tu computadora
+## Quien puede entrar
 
-Hace falta [Node.js](https://nodejs.org) 18 o superior.
+El link es publico, el contenido no. Para entrar hacen falta dos cosas:
 
-```bash
-npm install
-cp .env.example .env     # abrir el .env y cambiar SESSION_SECRET
-npm start
+1. Que un administrador haya **invitado tu email** desde la solapa Equipo.
+2. Que hayas creado tu cuenta con **ese mismo email**, eligiendo tu contrasena.
+
+Quien se registra sin invitacion crea una cuenta pero **no ve absolutamente
+nada**: ni una venta, ni un auto, ni un archivo. Eso no depende de que la web
+lo esconda, lo impide la base de datos.
+
+---
+
+## Ponerla en marcha (una sola vez, unos 15 minutos)
+
+### 1. Crear el proyecto en Supabase
+
+1. Entrar a <https://supabase.com> y crear una cuenta (gratis, sin tarjeta).
+2. **New project**. Elegir un nombre, una contrasena para la base (guardala) y
+   la region mas cercana (por ejemplo *South America (Sao Paulo)*).
+3. Esperar un par de minutos a que termine de crearse.
+
+### 2. Crear las tablas
+
+1. En el menu de la izquierda: **SQL Editor** → **New query**.
+2. Abrir el archivo [`supabase/instalar.sql`](supabase/instalar.sql) de este
+   repositorio, copiar **todo** el contenido y pegarlo ahi.
+3. Apretar **Run**.
+
+Crea las tablas, los permisos, el historial automatico y el deposito de
+archivos. Se puede volver a ejecutar cuando sea: no borra ni duplica nada.
+
+### 3. Conectar la web con la base
+
+1. En Supabase: **Project Settings** → **API**.
+2. Copiar **Project URL** y la clave **anon public**.
+3. Pegarlas en el archivo [`public/js/config.js`](public/js/config.js):
+
+```js
+export const config = {
+  url: 'https://abcdefgh.supabase.co',
+  clave: 'eyJhbGciOi...',
+  ...
+};
 ```
 
-Despues entrar a <http://localhost:3000>.
+> La clave `anon` es publica a proposito: viaja en cada visita. Lo que protege
+> los datos son los permisos de la base, no esta clave.
 
-La primera vez se crea solo el usuario administrador con los datos del `.env`
-(por defecto `admin@engel.com` / `engel1234`). **Cambiale la contrasena desde
-la web apenas ingreses**, con el boton "Clave" abajo a la izquierda.
+### 4. Publicar la web
 
-Para probarla con datos de ejemplo:
+Cualquiera de estas opciones es gratis y sirve igual:
 
-```bash
-npm run seed
-```
+**Netlify** (la mas simple)
+1. Entrar a <https://app.netlify.com> → **Add new site** → **Import an
+   existing project** y conectar este repositorio de GitHub.
+2. No hay nada que configurar: el archivo `netlify.toml` ya dice que publique
+   la carpeta `public`.
+3. Netlify te da el link. Ese es el que se comparte.
 
-Crea cuatro ventas, dos permutas y tres usuarios (`admin@engel.com`,
-`lucia@engel.com` y `martin@engel.com`, todos con la contrasena `engel1234`).
-El script no toca nada si la base ya tiene ventas cargadas.
+**Cloudflare Pages**: conectar el repositorio, dejar vacio el comando de
+compilacion y poner `public` como carpeta de salida.
 
-## Publicarla en internet (link publico)
+**Vercel**: conectar el repositorio; el archivo `vercel.json` ya esta listo.
 
-La web queda en una direccion propia, tipo `https://engel-ventas.onrender.com`,
-a la que entran desde cualquier computadora o celular. Cada uno ingresa con su
-email y su contrasena: el link es publico, el contenido no, porque adentro hay
-datos de clientes (documento, telefono, precios).
+**GitHub Pages**: en Settings → Pages, publicar la rama y la carpeta `public`.
 
-> Lo unico que no se puede saltear: **la base y los archivos tienen que vivir en
-> un disco persistente**. Si el servicio no ofrece disco, cada actualizacion
-> borra todo lo cargado.
+### 5. Primer ingreso
 
-### Opcion recomendada: Render
+1. Abrir el link y elegir **Crear mi cuenta**.
+2. **El primero que se registra queda como administrador.** Que sea la persona
+   que va a administrar el sistema.
+3. Desde **Equipo** → **Sumar a alguien**, invitar el email de cada companero.
+4. Pasarles el link: cada uno elige **Crear mi cuenta** con el email invitado y
+   arma su propia contrasena. Vos nunca ves las claves de los demas.
 
-1. Entrar a <https://dashboard.render.com/blueprints> y elegir **New Blueprint**.
-2. Conectar este repositorio de GitHub. Render lee el archivo `render.yaml` y
-   configura todo solo: el disco, el HTTPS y la clave de sesiones.
-3. Cuando lo pida, completar `ADMIN_EMAIL`, `ADMIN_PASSWORD` y `ADMIN_NOMBRE`:
-   es el primer usuario con el que se entra.
-4. Al terminar, Render muestra el link publico. Ese es el que se comparte.
-5. Entrar, cambiar la contrasena (la web insiste hasta que se cambia) y dar de
-   alta al resto del equipo desde la solapa **Equipo**.
+### 6. Una recomendacion antes de repartir el link
 
-El plan tiene que ser **starter o superior** (unos USD 7 por mes mas el disco):
-el plan gratuito de Render no permite disco persistente.
+En Supabase, **Authentication** → **Providers** → **Email**, dejar activada la
+confirmacion por correo. Asi nadie puede registrarse con un email que no es
+suyo.
 
-### Opcion alternativa: Fly.io
-
-Con el archivo `fly.toml` que ya esta en el repositorio:
-
-```bash
-fly launch --no-deploy --copy-config
-fly volumes create engel_datos --size 5
-fly secrets set SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
-fly secrets set ADMIN_EMAIL=tuemail@engel.com ADMIN_PASSWORD=una-clave-larga
-fly deploy
-```
-
-Queda en `https://<nombre-de-la-app>.fly.dev`.
-
-### En un servidor propio o una VPS
-
-1. Clonar el repositorio y correr `npm ci --omit=dev`.
-2. Crear el `.env` con `SESSION_SECRET`, `ADMIN_EMAIL` y `ADMIN_PASSWORD`.
-3. Levantarlo con `systemd` o `pm2` para que se reinicie solo.
-4. Poner Nginx o Caddy adelante con HTTPS, y en el `.env` definir
-   `SECURE_COOKIES=true` y `FORZAR_HTTPS=true`.
-
-### Con Docker
-
-```bash
-export SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
-export ADMIN_EMAIL=tuemail@engel.com
-export ADMIN_PASSWORD=una-clave-larga
-docker compose up -d
-```
-
-La base y la documentacion quedan en el volumen `engel-datos`, montado en
-`/datos`.
-
-### Antes de compartir el link
-
-- Cambiar la contrasena del administrador (la web lo pide sola).
-- Dar de alta a cada companero con su propio usuario: asi queda claro quien
-  vendio cada auto y quien cargo cada papel.
-- Confirmar que `SECURE_COOKIES=true` (Render y Fly ya lo dejan asi).
-
-## Configuracion
-
-Todo se define en el archivo `.env` (ver `.env.example`):
-
-| Variable | Para que sirve | Por defecto |
-| --- | --- | --- |
-| `PORT` | Puerto del servidor | `3000` |
-| `SESSION_SECRET` | Clave con la que se firman las sesiones | obligatoria en produccion |
-| `DB_PATH` | Archivo de la base de datos | `./data/engel.db` |
-| `UPLOAD_DIR` | Carpeta de la documentacion cargada | `./uploads` |
-| `MAX_FILE_MB` | Tamano maximo por archivo | `25` |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NOMBRE` | Administrador que se crea la primera vez | `admin@engel.com` / `engel1234` |
-| `SECURE_COOKIES` | Poner en `true` si la web se sirve por HTTPS | `false` |
-| `FORZAR_HTTPS` | Redirige de http a https (usar solo detras de un proxy con HTTPS) | `false` |
-| `RESPALDO_CADA_MINUTOS` | Cada cuanto se hace una copia automatica de la base (`0` la desactiva) | `180` |
-| `RESPALDOS_A_CONSERVAR` | Cuantas copias se guardan antes de borrar las viejas | `24` |
+---
 
 ## Como se usa
 
-1. **Equipo**: un administrador da de alta a cada vendedor con su email y su
-   contrasena. Los vendedores cargan y editan ventas; los administradores
-   ademas crean usuarios y pueden borrar ventas.
-2. **Cargar venta**: se completa el auto que se vende (dominio, descripcion y
+1. **Cargar venta**: se completa el auto que se vende (dominio, descripcion y
    si es propio o consigna), los datos de la operacion, la fecha de entrega
    estimada y, si hay, las permutas. Al guardar se generan solos los
    checklists de documentacion.
-3. **Editar**: en la ficha de la venta se cambia cualquier dato directamente
-   sobre el campo. No hay que apretar "guardar": se guarda solo.
-4. **Documentacion**: desde la ficha de la venta se sube el archivo de cada
-   documento. Al subir un archivo el item pasa a "Listo" automaticamente.
-   Tambien se puede marcar a mano "En tramite" o "No aplica" y dejar una
-   observacion.
-5. **Documentacion pendiente**: la solapa "Documentacion" muestra todos los
-   autos con papeles faltantes, ordenados por la entrega mas cercana.
-6. **Buscar dominio**: se escribe la patente y aparece el auto, todas las
-   operaciones donde figura (como vendido o como permuta) y el boton para
-   bajar toda la documentacion en un ZIP.
+2. **Editar**: en la ficha de la venta se cambia cualquier dato directamente
+   sobre el campo. No hay boton de guardar: se guarda solo.
+3. **Documentacion**: desde la ficha se sube el archivo de cada documento. Al
+   subirlo, el item pasa a "Listo" automaticamente. Tambien se puede marcar a
+   mano "En tramite" o "No aplica" y dejar una observacion.
+4. **Documentacion pendiente**: la solapa Documentacion muestra todos los autos
+   con papeles faltantes, ordenados por la entrega mas cercana.
+5. **Buscar dominio**: se escribe la patente y aparece el auto, todas las
+   operaciones donde figura (como vendido o como permuta) y el boton para bajar
+   toda la documentacion en un ZIP.
 
 ## Que se guarda solo (y por que no se pierde nada)
 
 La regla es simple: **no hay boton de "guardar" que alguien pueda olvidarse de
-apretar**. Todo se guarda solo.
+apretar**.
 
-- **Cada campo, por separado.** En la ficha de una venta, apenas terminas de
-  escribir un dato (o salis del campo), se guarda y aparece "Guardado ✓" al
-  lado. Como cada campo viaja solo, dos personas pueden editar la misma venta
-  al mismo tiempo sin pisarse.
-- **Si falla, se reintenta.** Los cambios pasan por una cola que reintenta con
-  esperas cada vez mas largas. Abajo a la derecha hay un cartel que dice si
-  quedo algo pendiente.
+- **Cada campo, por separado.** Apenas terminas de escribir un dato (o salis
+  del campo), se guarda y aparece "Guardado ✓" al lado. Como cada campo viaja
+  solo, dos personas pueden editar la misma venta al mismo tiempo sin pisarse.
+- **Si falla, se reintenta.** Los cambios pasan por una cola con esperas cada
+  vez mas largas. Abajo a la derecha hay un cartel que dice si quedo algo
+  pendiente.
 - **Sin internet tambien.** La cola queda guardada en el navegador. Podes
-  seguir trabajando sin conexion, cerrar el navegador o quedarte sin bateria:
-  cuando la web vuelve a abrir, los cambios se mandan solos.
+  seguir trabajando sin conexion o cerrar el navegador: cuando la web vuelve a
+  abrir, los cambios se mandan solos.
 - **Borradores de lo que estas cargando.** Mientras completas una venta nueva,
-  lo escrito se guarda como borrador (en el navegador al instante y en el
-  servidor a los pocos segundos). Si cerras sin terminar, al volver te ofrece
+  lo escrito se guarda como borrador (en el navegador al instante y en la base
+  a los pocos segundos). Si cerras sin terminar, al volver te ofrece
   recuperarlo, incluso desde otra computadora. El borrador se borra recien
-  cuando el servidor confirma la venta.
-- **Aviso al cerrar.** Si quedara algo sin confirmar, el navegador avisa antes
-  de cerrar la pestana.
-- **Archivos con reintento.** Si se corta la conexion mientras sube un PDF,
-  se reintenta solo varias veces sin tener que elegir el archivo de nuevo.
+  cuando la base confirma la venta.
+- **Aviso al cerrar** si quedara algo sin confirmar.
+- **Archivos con reintento**: si se corta la conexion mientras sube un PDF, se
+  reintenta solo sin tener que elegir el archivo de nuevo.
 
 ### Historial: el antes y el despues
 
 Cada movimiento queda registrado con quien lo hizo, cuando, y **el valor
 anterior**. Se ve con el boton **Historial** en la ficha de la venta.
 
-Si alguien pisa un dato por error, el valor viejo sigue estando en el
-historial. Y si se borra una venta, se guarda una copia completa de toda la
-operacion (venta, auto, permutas, checklist y notas).
+Lo escriben disparadores de la base de datos, no la web: **nadie lo puede
+falsear, editar ni borrar**, ni siquiera un administrador. Si alguien pisa un
+dato por error, el valor viejo sigue estando. Y si se borra una venta, queda
+una copia completa de toda la operacion.
 
 ### Varios usando la web al mismo tiempo
 
-- Las escrituras se hacen de a una y en transacciones: no se mezclan.
-- La base usa `synchronous = FULL`, o sea que un cambio confirmado ya esta
-  escrito en el disco. Un corte de luz no se lleva la ultima carga.
+- Las escrituras van en transacciones: no se mezclan.
+- Cargar una venta es todo o nada: nunca queda media venta cargada.
+- Un mismo dominio no puede estar en dos ventas abiertas, y la base lo impide
+  aunque dos personas lo intenten en el mismo segundo.
 - Si otra persona carga algo mientras tenes la pagina abierta, aparece un
   cartel discreto ofreciendo actualizar. Nunca se te borra lo que estas
   escribiendo.
-- Al apagar el servidor se cierra la base de forma ordenada.
-
-### Respaldos automaticos
-
-Cada 3 horas (configurable) se guarda una copia completa de la base en la
-carpeta `respaldos`, conservando las ultimas 24. Se pueden ver y descargar
-desde la solapa **Equipo**.
 
 ## Descargar la informacion
 
 - **Ventas en CSV**: boton "Exportar CSV" en el listado. Respeta los filtros
-  que esten aplicados y se abre en Excel o en Google Sheets.
+  puestos y se abre en Excel o Google Sheets.
 - **Documentacion en CSV**: boton "Exportar CSV" en la solapa Documentacion.
 - **Documentacion de un auto**: boton "ZIP" en la ficha del dominio o en la
   venta.
-- **Base completa**: boton "Descargar base de datos" en la solapa Equipo (solo
-  administradores). Guarda una copia del archivo SQLite.
-- **Respaldos automaticos**: la lista de copias de las ultimas horas, tambien
-  en la solapa Equipo, con un boton para bajar cualquiera de ellas.
+- **Copia de todo**: en la solapa Equipo, "Descargar copia de todo" baja un
+  archivo con toda la informacion (ventas, autos, permutas, documentacion,
+  notas e historial). Conviene guardarla de vez en cuando.
 
-### Copia de seguridad
+Supabase ademas hace sus propias copias de seguridad diarias.
 
-Alcanza con copiar el archivo de la base (`DB_PATH`) y la carpeta de
-documentacion (`UPLOAD_DIR`). Con Docker, ambos estan dentro del volumen:
+## Limites del plan gratuito
+
+| Recurso | Limite | Alcanza para |
+| --- | --- | --- |
+| Base de datos | 500 MB | decenas de miles de ventas |
+| Archivos | 1 GB | unos 250 autos con sus 8 documentos escaneados |
+| Transferencia | 5 GB por mes | uso normal de un equipo chico |
+
+Si algun dia queda corto, el plan pago de Supabase arranca en USD 25 por mes y
+no hay que cambiar nada de la web. Mientras tanto, conviene bajar la copia
+completa cada tanto y guardarla aparte.
+
+> Los proyectos gratuitos de Supabase se pausan si no reciben ni una consulta
+> durante 7 dias seguidos. Con uso diario eso no pasa; si llegara a pasar, se
+> reactivan desde el panel con un boton.
+
+---
+
+## Para desarrollar
 
 ```bash
-docker run --rm -v engel-datos:/datos -v "$PWD":/backup alpine \
-  tar czf /backup/engel-backup-$(date +%F).tar.gz -C /datos .
+npm install          # solo herramientas de desarrollo
+npm run dev          # web en http://localhost:4000
+npm run check        # revisa la sintaxis y los imports de public/js
+npm run prueba-sql   # 84 verificaciones del esquema contra PostgreSQL
+npm run prueba-web   # recorre la web entera en un navegador de verdad
 ```
 
-## Desarrollo
+Las pruebas de SQL y de la web necesitan un PostgreSQL local:
 
 ```bash
-npm run dev    # servidor con recarga automatica
-npm test       # pruebas end-to-end de la API
+sudo apt-get install -y postgresql-16
+sudo -u postgres /usr/lib/postgresql/16/bin/initdb -D /var/lib/engel-pg -U engel --auth=trust
+sudo -u postgres /usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/engel-pg -o "-p 5433 -k /tmp" start
 ```
 
 ### Como esta armado
 
 ```
-src/
-  server.js          Servidor Express y manejo de errores
-  config.js          Lectura del .env
-  db.js              Conexion SQLite y creacion del esquema
-  schema.sql         Tablas e indices
-  lib/               Validaciones y logica de negocio
-  routes/            Endpoints de la API
-  scripts/seed.js    Datos de ejemplo
-public/
-  js/guardado.js     Cola de guardado automatico con reintentos
-  js/borradores.js   Formularios a medio completar
-  js/campo-auto.js   Campos que se guardan solos
+public/                 La web (HTML, CSS y JavaScript sin compilar)
+  js/config.js          Lo unico que hay que editar
+  js/api.js             Todo lo que se guarda y se consulta
+  js/guardado.js        Cola de guardado automatico con reintentos
+  js/borradores.js      Formularios a medio completar
+  js/campo-auto.js      Campos que se guardan solos
+  js/descargas.js       ZIP, CSV y copia completa, armados en el navegador
   js/sincronizacion.js  Aviso de cambios de otras personas
-test/                Pruebas de la API y del guardado
+  js/vistas/            Una pantalla por archivo
+
+supabase/
+  instalar.sql          Todo junto, para pegar de una vez
+  01-esquema.sql        Tablas e indices
+  02-seguridad.sql      Permisos, invitaciones y historial automatico
+  03-funciones.sql      Logica de negocio (validaciones y transacciones)
+  04-consultas.sql      Consultas que arma la base
+  05-almacenamiento.sql Deposito de archivos
+  06-permisos.sql       Permisos de tabla
+  pruebas/              Verificaciones del esquema
+
+herramientas/
+  servidor-local.js     Servidor estatico para desarrollar
+  revisar-web.js        Revisa sintaxis e imports
+  pruebas/              Doble de Supabase para probar sin tocar la nube
 ```
 
-Sin framework de frontend ni paso de compilacion: el navegador carga los
-archivos de `public/` tal como estan.
+Sin framework ni paso de compilacion: el navegador carga los archivos de
+`public/` tal como estan.
 
 ### Notas tecnicas
 
+- Las validaciones y las transacciones viven en funciones de PostgreSQL, no en
+  el navegador: no se pueden saltear desde la consola.
+- Cada tabla tiene politicas de acceso (RLS). Sin sesion valida y perfil activo
+  no se ve ni una fila, y lo mismo para los archivos.
+- El historial lo escriben disparadores `AFTER INSERT/UPDATE/DELETE`, dentro de
+  la misma transaccion que el cambio.
 - Los dominios se normalizan a mayusculas sin espacios y se valida el formato
   viejo (`AAA123`), el del Mercosur (`AB123CD`) y el de motos (`A123BCD`).
-- Un mismo dominio no puede estar en dos ventas activas a la vez.
-- Los archivos se guardan en disco con un nombre aleatorio; el nombre original
-  queda en la base para la descarga.
-- Las sesiones son cookies `HttpOnly` firmadas, con 12 horas de duracion.
-- Las contrasenas se guardan con `bcrypt`, y las que pone un administrador
-  quedan marcadas como provisorias hasta que la persona las cambia.
-- Cada cambio se registra en la tabla `auditoria` con el antes y el despues,
-  dentro de la misma transaccion que lo guarda. Si por algun motivo no se
-  pudiera escribir, la linea se guarda en `historial-de-emergencia.log`.
-- Los formularios a medio completar viven en la tabla `borradores`, uno por
-  persona y por formulario.
-- `npm test` corre el verificador de la web mas 48 pruebas de la API,
-  incluidas las de escrituras en simultaneo.
+- Los archivos se guardan con un nombre unico por venta, auto y tipo de
+  documento, asi dos personas que suben a la vez no se pisan.
+- El ZIP y los CSV se arman en el navegador, sin servidor propio.
+
+### Version anterior
+
+Antes de pasar a Supabase, este mismo sistema funcionaba con un servidor Node y
+SQLite. Sigue en el historial de git (commit `f91a865`) por si alguna vez se
+quiere instalar en un servidor propio.

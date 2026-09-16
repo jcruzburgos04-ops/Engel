@@ -1,8 +1,10 @@
 import { api } from '../api.js';
 import {
-  h, vaciar, fecha, diasHasta, etiquetaDominio, etiquetaTenencia, barraProgreso, vacio, campo
+  h, vaciar, fecha, diasHasta, avisar, etiquetaDominio, etiquetaTenencia, barraProgreso, vacio, campo
 } from '../util.js';
 import { encabezado } from '../app.js';
+import { descargarDocumentacionCsv } from '../descargas.js';
+import { botonZip } from './documentos-ui.js';
 
 function descripcion(fila) {
   return [fila.marca, fila.modelo, fila.anio].filter(Boolean).join(' ') || fila.descripcion || 'Sin descripcion';
@@ -42,7 +44,7 @@ function filaPanel(fila) {
       'td',
       { class: 'acciones' },
       h('a', { class: 'boton boton--chico', href: `#/ventas/${fila.venta_id}` }, 'Cargar'),
-      fila.archivos ? h('a', { class: 'boton boton--chico', href: api.urlZipDominio(fila.dominio), style: 'margin-left:.3rem' }, 'ZIP') : null
+      fila.archivos ? (() => { const b = botonZip(fila.dominio, 'ZIP'); b.style.marginLeft = '.3rem'; return b; })() : null
     )
   );
 }
@@ -66,7 +68,25 @@ export async function vistaDocumentacion() {
         verTodos.checked
           ? `${filas.length} auto(s) en operaciones activas`
           : `${filas.length} auto(s) con documentacion pendiente`,
-        h('span', { class: 'derecha' }, h('a', { class: 'boton boton--chico', href: api.urlDocumentacionCsv(), download: '' }, '⬇️ Exportar CSV'))
+        h('span', { class: 'derecha' }, h(
+          'button',
+          {
+            class: 'boton boton--chico',
+            type: 'button',
+            onClick: async (e) => {
+              const b = e.currentTarget;
+              b.disabled = true;
+              try {
+                await descargarDocumentacionCsv();
+              } catch (error) {
+                avisar(error.message, 'error');
+              } finally {
+                b.disabled = false;
+              }
+            }
+          },
+          '⬇️ Exportar CSV'
+        ))
       );
 
       if (!filas.length) {

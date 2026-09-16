@@ -7,7 +7,7 @@ import {
 import { campoAuto, campoAutoAncho } from '../campo-auto.js';
 import { esperarGuardado } from '../guardado.js';
 import { encabezado, navegar, estado as estadoApp, refrescarPendientes } from '../app.js';
-import { bloqueDocumentacion } from './documentos-ui.js';
+import { bloqueDocumentacion, botonZip } from './documentos-ui.js';
 import { camposVehiculo } from './campos-vehiculo.js';
 
 const MONEDAS = [{ valor: 'ARS', texto: 'Pesos (ARS)' }, { valor: 'USD', texto: 'Dolares (USD)' }];
@@ -28,8 +28,6 @@ function avisoEntrega(venta) {
 
 export async function vistaVenta({ id }) {
   const contenedor = h('div', {});
-  const ruta = `/api/ventas/${id}`;
-
   const { usuarios } = await api.usuarios(true);
 
   async function recargar() {
@@ -58,14 +56,14 @@ export async function vistaVenta({ id }) {
 
   // Campo de la venta que se guarda solo.
   const campoVenta = (etiqueta, control, nombre, ayuda) =>
-    campoAuto({ etiqueta, control, ruta, campo: nombre, ayuda });
+    campoAuto({ etiqueta, control, ventaId: id, campo: nombre, ayuda });
 
   // Campo del auto vendido: viaja anidado dentro de `vehiculo`.
   const campoAuto2 = (etiqueta, control, nombre, ayuda) =>
     campoAuto({
       etiqueta,
       control,
-      ruta,
+      ventaId: id,
       campo: nombre,
       ayuda,
       claveExtra: ':vehiculo',
@@ -82,7 +80,7 @@ export async function vistaVenta({ id }) {
       `Venta #${venta.id}`,
       `${descripcionVehiculo(v)} · cargada por ${venta.creado_por_nombre || venta.vendedor_nombre} el ${fechaHora(venta.creado_en)}`,
       h('a', { class: 'boton', href: '#/ventas' }, '← Volver'),
-      h('a', { class: 'boton', href: api.urlZipDominio(v.dominio) }, '⬇️ Documentacion ZIP'),
+      botonZip(v.dominio, '⬇️ Documentacion ZIP'),
       h('button', { class: 'boton', type: 'button', onClick: () => abrirHistorial(venta) }, '🕓 Historial'),
       esAdmin
         ? h(
@@ -158,7 +156,7 @@ export async function vistaVenta({ id }) {
           campoAutoAncho({
             etiqueta: 'Detalles extras de la operacion',
             control: (() => { const t = h('textarea', { rows: 3 }); t.value = venta.detalles || ''; return t; })(),
-            ruta,
+            ventaId: id,
             campo: 'detalles'
           })
         )
@@ -211,7 +209,7 @@ export async function vistaVenta({ id }) {
           campoAutoAncho({
             etiqueta: 'Descripcion',
             control: (() => { const t = h('textarea', { rows: 2 }); t.value = v.descripcion || ''; return t; })(),
-            ruta,
+            ventaId: id,
             campo: 'descripcion',
             claveExtra: ':vehiculo',
             envolver: (valor, clave) => ({ vehiculo: { [clave]: valor } }),

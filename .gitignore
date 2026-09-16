@@ -1,10 +1,6 @@
 node_modules/
-data/*.db
-data/*.db-journal
-data/*.db-wal
-data/*.db-shm
-uploads/
-!uploads/.gitkeep
-.env
 .DS_Store
 *.log
+
+# Configuracion local, por si probas contra otro proyecto de Supabase
+public/js/config.local.js

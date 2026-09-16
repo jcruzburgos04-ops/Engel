@@ -50,10 +50,18 @@ export function fechaLarga(iso) {
 
 export function fechaHora(iso) {
   if (!iso) return '—';
-  const limpio = String(iso).replace(' ', 'T') + (String(iso).endsWith('Z') ? '' : 'Z');
-  const d = new Date(limpio);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  const texto = String(iso);
+  // Postgres devuelve "2026-09-16T05:09:30.299+00:00"; SQLite devolvia
+  // "2026-09-16 05:09:30" sin zona. Se aceptan las dos formas.
+  const tieneZona = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(texto);
+  const normalizado = texto.replace(' ', 'T') + (tieneZona ? '' : 'Z');
+
+  const d = new Date(normalizado);
+  if (Number.isNaN(d.getTime())) return texto;
+  return d.toLocaleString('es-AR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
 }
 
 export function hoy() {

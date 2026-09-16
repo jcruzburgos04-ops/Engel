@@ -1,0 +1,27 @@
+# Publicacion en Netlify (gratis).
+#
+# Conectar el repositorio en https://app.netlify.com y listo: no hay nada
+# que compilar, la web son archivos sueltos.
+
+[build]
+  publish = "public"
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "same-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+
+# El index no se cachea, asi una actualizacion llega enseguida.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/js/config.js"
+  [headers.values]
+    Cache-Control = "no-cache"

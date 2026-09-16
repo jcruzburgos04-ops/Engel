@@ -1,12 +1,15 @@
 // Borradores de formularios.
 //
 // Mientras alguien completa una carga, lo escrito se guarda solo: primero en
-// el navegador (al instante) y despues en el servidor (a los pocos segundos).
+// el navegador (al instante) y despues en la base (a los pocos segundos).
 // Si se cierra la pagina sin guardar, al volver se ofrece recuperar lo que
 // estaba escrito, incluso desde otra computadora.
 
+import { api } from './api.js';
+import { encolar } from './guardado.js';
+
 const PREFIJO_LOCAL = 'engel:borrador:';
-const DEMORA_SERVIDOR = 1500;
+const DEMORA_REMOTA = 1500;
 
 function claveLocal(clave) {
   return PREFIJO_LOCAL + clave;
@@ -16,7 +19,7 @@ function guardarLocal(clave, contenido) {
   try {
     localStorage.setItem(claveLocal(clave), JSON.stringify({ contenido, fecha: new Date().toISOString() }));
   } catch {
-    // Sin localStorage el borrador vive solo en el servidor.
+    // Sin localStorage el borrador vive solo en la base.
   }
 }
 
@@ -37,47 +40,24 @@ function borrarLocal(clave) {
   }
 }
 
-async function guardarEnServidor(clave, contenido) {
-  await fetch(`/api/borradores/${encodeURIComponent(clave)}`, {
-    method: 'PUT',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contenido })
-  });
-}
-
-async function leerDelServidor(clave) {
-  try {
-    const respuesta = await fetch(`/api/borradores/${encodeURIComponent(clave)}`, {
-      credentials: 'same-origin'
-    });
-    if (!respuesta.ok) return null;
-    const { borrador } = await respuesta.json();
-    if (!borrador) return null;
-    return { contenido: JSON.parse(borrador.contenido), fecha: borrador.actualizado_en };
-  } catch {
-    return null;
-  }
-}
-
 export async function descartarBorrador(clave) {
   borrarLocal(clave);
   try {
-    await fetch(`/api/borradores/${encodeURIComponent(clave)}`, {
-      method: 'DELETE',
-      credentials: 'same-origin'
-    });
+    await api.descartarBorrador(clave);
   } catch {
     // Si falla, el borrador queda y se vuelve a ofrecer. Preferible a perderlo.
   }
 }
 
-/** Devuelve el borrador mas reciente entre el del navegador y el del servidor. */
+/** Devuelve el borrador mas reciente entre el del navegador y el de la base. */
 export async function recuperarBorrador(clave) {
-  const [local, remoto] = await Promise.all([
-    Promise.resolve(leerLocal(clave)),
-    leerDelServidor(clave)
-  ]);
+  const local = leerLocal(clave);
+  let remoto = null;
+  try {
+    remoto = await api.leerBorrador(clave);
+  } catch {
+    // Sin conexion alcanza con el del navegador.
+  }
 
   if (local && remoto) {
     return new Date(local.fecha) >= new Date(remoto.fecha) ? local : remoto;
@@ -109,26 +89,24 @@ export function vigilarBorrador(formulario, clave, leer, { alGuardar } = {}) {
 
     clearTimeout(temporizador);
     temporizador = setTimeout(() => {
-      guardarEnServidor(clave, contenido)
-        .then(() => alGuardar && alGuardar())
-        .catch(() => {
-          // El borrador ya quedo en el navegador; se reintenta al proximo cambio.
-        });
-    }, DEMORA_SERVIDOR);
+      // Pasa por la cola: si no hay internet, se reintenta solo.
+      encolar({
+        clave: `borrador:${clave}`,
+        operacion: 'guardar_borrador',
+        args: { clave, contenido },
+        descripcion: 'Borrador',
+        alConfirmar: () => alGuardar && alGuardar()
+      });
+    }, DEMORA_REMOTA);
   };
 
   formulario.addEventListener('input', guardar);
   formulario.addEventListener('change', guardar);
 
-  // Al salir de la pagina se intenta dejar la ultima version en el servidor.
+  // Al salir de la pagina el borrador queda al menos en el navegador.
   const alSalir = () => {
     try {
-      const contenido = leer();
-      guardarLocal(clave, contenido);
-      navigator.sendBeacon?.(
-        `/api/borradores/${encodeURIComponent(clave)}`,
-        new Blob([JSON.stringify({ contenido })], { type: 'application/json' })
-      );
+      guardarLocal(clave, leer());
     } catch {
       // Nada que hacer al cerrar.
     }

@@ -1,9 +1,10 @@
 import { api } from '../api.js';
 import {
-  h, vaciar, fecha, dinero, diasHasta, etiquetaEstadoVenta, etiquetaDominio, etiquetaTenencia,
-  descripcionVehiculo, barraProgreso, vacio, campo, opciones, ESTADOS_VENTA
+  h, vaciar, fecha, dinero, diasHasta, avisar, etiquetaEstadoVenta, etiquetaDominio,
+  etiquetaTenencia, descripcionVehiculo, barraProgreso, vacio, campo, opciones, ESTADOS_VENTA
 } from '../util.js';
 import { encabezado, estado as estadoApp } from '../app.js';
+import { descargarVentasCsv } from '../descargas.js';
 
 function filtrosDeLaUrl() {
   const partes = location.hash.split('?');
@@ -119,7 +120,6 @@ export async function vistaVentas() {
     try {
       const datos = await api.ventas(filtrosActivos);
       vaciar(resultados).append(...armarTabla(datos));
-      botonExportar.href = api.urlVentasCsv(filtrosActivos);
     } catch (error) {
       vaciar(resultados).append(h('div', { class: 'aviso aviso--error', style: 'margin:1rem' }, error.message));
     }
@@ -183,7 +183,26 @@ export async function vistaVentas() {
     return [titulo, tabla, paginacion].filter(Boolean);
   }
 
-  const botonExportar = h('a', { class: 'boton', href: api.urlVentasCsv(filtros), download: '' }, '⬇️ Exportar CSV');
+  const botonExportar = h(
+    'button',
+    {
+      class: 'boton',
+      type: 'button',
+      onClick: async () => {
+        botonExportar.disabled = true;
+        botonExportar.textContent = 'Preparando…';
+        try {
+          await descargarVentasCsv(filtrosActivos);
+        } catch (error) {
+          avisar(error.message, 'error');
+        } finally {
+          botonExportar.disabled = false;
+          botonExportar.textContent = '⬇️ Exportar CSV';
+        }
+      }
+    },
+    '⬇️ Exportar CSV'
+  );
 
   let temporizador;
   controles.q.addEventListener('input', () => {

@@ -26,15 +26,15 @@ function marcar(contenedor, marca, estado, texto) {
  * Crea un campo enganchado al guardado automatico.
  *
  * - `control`: el input, select o textarea ya construido.
- * - `ruta`: a donde se manda el PATCH.
- * - `campo`: nombre del dato dentro del cuerpo del PATCH.
+ * - `ventaId`: la venta a la que pertenece el campo.
+ * - `campo`: nombre del dato que se guarda.
  * - `leerValor`: como sacar el valor del control (por defecto, `.value`).
  * - `envolver`: permite mandar el dato anidado (por ejemplo dentro de `vehiculo`).
  */
 export function campoAuto({
   etiqueta,
   control,
-  ruta,
+  ventaId,
   campo,
   ayuda,
   leerValor = (el) => el.value,
@@ -63,10 +63,9 @@ export function campoAuto({
     marcar(contenedor, marca, 'guardando', 'Guardando…');
 
     encolar({
-      clave: `${ruta}:${campo}${claveExtra}`,
-      metodo: 'PATCH',
-      ruta,
-      cuerpo: envolver(valor, campo),
+      clave: `venta:${ventaId}:${campo}${claveExtra}`,
+      operacion: 'editar_venta',
+      args: { id: ventaId, datos: envolver(valor, campo) },
       descripcion: etiqueta || campo,
       alConfirmar: (datos) => {
         marcar(contenedor, marca, 'ok', 'Guardado ✓');

@@ -154,7 +154,6 @@ export async function vistaNuevaVenta() {
         boton.textContent = 'Guardando…';
 
         const cuerpo = leerFormulario();
-        cuerpo.vendedor_id = Number(cuerpo.vendedor_id);
 
         try {
           const { venta } = await api.crearVenta(cuerpo);

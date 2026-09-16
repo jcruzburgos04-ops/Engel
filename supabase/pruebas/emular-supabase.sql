@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS auth.users (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Solo para las pruebas: Supabase guarda las contrasenas por su cuenta.
+CREATE TABLE IF NOT EXISTS auth.claves (
+  email text PRIMARY KEY,
+  clave text NOT NULL
+);
+
 -- Igual que la de Supabase: saca el id del usuario del token.
 CREATE OR REPLACE FUNCTION auth.uid()
 RETURNS uuid

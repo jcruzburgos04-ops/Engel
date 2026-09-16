@@ -1,4 +1,5 @@
 import { api, cuandoSePierdeLaSesion } from './api.js';
+import { config, estaConfigurado } from './config.js';
 import { h, vaciar, avisar, abrirModal, campo } from './util.js';
 import { iniciarGuardado, hayCambiosPendientes, esperarGuardado } from './guardado.js';
 import { iniciarSincronizacion, marcarComoVisto, detenerSincronizacion } from './sincronizacion.js';
@@ -37,7 +38,7 @@ export function navegar(ruta, { reemplazar = false } = {}) {
 }
 
 function rutaActual() {
-  return location.hash.replace(/^#\/?/, '') || 'panel';
+  return location.hash.replace(/^#\/?/, '').split('?')[0] || 'panel';
 }
 
 function resolver(ruta) {
@@ -80,7 +81,7 @@ function menuLateral(rutaActiva) {
     h(
       'div',
       { class: 'menu__pie' },
-      h('div', { class: 'menu__usuario' }, estado.usuario.nombre),
+      h('div', { class: 'menu__usuario' }, estado.usuario.nombre || estado.usuario.email),
       h('div', { class: 'menu__rol' }, estado.usuario.rol === 'admin' ? 'Administrador' : 'Vendedor'),
       h(
         'div',
@@ -88,20 +89,6 @@ function menuLateral(rutaActiva) {
         h('button', { class: 'boton boton--chico', type: 'button', onClick: abrirCambioPassword }, 'Clave'),
         h('button', { class: 'boton boton--chico', type: 'button', onClick: cerrarSesion }, 'Salir')
       )
-    )
-  );
-}
-
-function avisoPasswordProvisoria() {
-  if (!estado.usuario || !estado.usuario.password_provisoria) return null;
-  return h(
-    'div',
-    { class: 'aviso aviso--error', style: 'display:flex;flex-wrap:wrap;align-items:center;gap:.6rem' },
-    h('span', {}, '🔑 Tu contrasena es provisoria. Como la web esta publicada en internet, cambiala ahora.'),
-    h(
-      'button',
-      { class: 'boton boton--chico', type: 'button', style: 'margin-left:auto', onClick: abrirCambioPassword },
-      'Cambiar contrasena'
     )
   );
 }
@@ -116,7 +103,8 @@ export function encabezado(titulo, subtitulo, ...acciones) {
 }
 
 async function dibujar() {
-  if (!estado.usuario) return dibujarLogin();
+  if (!estaConfigurado()) return dibujarSinConfigurar();
+  if (!estado.usuario) return dibujarIngreso();
 
   const ruta = rutaActual();
   const resuelto = resolver(ruta);
@@ -131,8 +119,7 @@ async function dibujar() {
 
   try {
     const vista = await resuelto.definicion.vista(resuelto.params);
-    const aviso = avisoPasswordProvisoria();
-    vaciar(contenido).append(...(aviso ? [aviso, vista] : [vista]));
+    vaciar(contenido).append(vista);
     marcarComoVisto();
     window.scrollTo(0, 0);
   } catch (error) {
@@ -145,53 +132,9 @@ async function dibujar() {
   return undefined;
 }
 
-// ---------- Login ----------
+// ---------- Pantalla de ingreso ----------
 
-function dibujarLogin(mensaje) {
-  const email = h('input', { type: 'email', required: true, autocomplete: 'username', placeholder: 'tunombre@engel.com' });
-  const password = h('input', { type: 'password', required: true, autocomplete: 'current-password', placeholder: '••••••••' });
-  const boton = h('button', { class: 'boton boton--primario boton--ancho', type: 'submit' }, 'Ingresar');
-  const error = h('div', { class: 'aviso aviso--error', style: 'display:none' });
-
-  if (mensaje) {
-    error.textContent = mensaje;
-    error.style.display = '';
-  }
-
-  const formulario = h(
-    'form',
-    {
-      onSubmit: async (e) => {
-        e.preventDefault();
-        boton.disabled = true;
-        boton.textContent = 'Ingresando…';
-        error.style.display = 'none';
-        try {
-          const { usuario } = await api.login(email.value.trim(), password.value);
-          estado.usuario = usuario;
-          await refrescarPendientes();
-          iniciarSincronizacion(() => dibujar());
-          navegar(rutaActual());
-          dibujar();
-        } catch (err) {
-          error.textContent = err.message;
-          error.style.display = '';
-          password.value = '';
-          password.focus();
-        } finally {
-          boton.disabled = false;
-          boton.textContent = 'Ingresar';
-        }
-      }
-    },
-    error,
-    campo('Email', email),
-    h('div', { style: 'height:.75rem' }),
-    campo('Contrasena', password),
-    h('div', { style: 'height:1.25rem' }),
-    boton
-  );
-
+function cajaLogin(...contenido) {
   vaciar(raiz).append(
     h(
       'div',
@@ -200,9 +143,135 @@ function dibujarLogin(mensaje) {
         'div',
         { class: 'login__caja' },
         h('div', { class: 'login__marca' }, h('strong', {}, 'ENGEL'), h('span', {}, 'Administracion de ventas')),
-        formulario
+        ...contenido
       )
     )
+  );
+}
+
+function dibujarSinConfigurar() {
+  cajaLogin(
+    h('div', { class: 'aviso aviso--error' }, 'Falta conectar la web con la base de datos.'),
+    h('p', { class: 'tenue' },
+      'Hay que completar el archivo public/js/config.js con los datos del proyecto de Supabase ' +
+      '(Project Settings → API): la "Project URL" y la clave "anon public".'),
+    h('p', { class: 'tenue' }, 'El README del repositorio tiene el paso a paso.')
+  );
+}
+
+function dibujarIngreso(mensaje, modo = 'ingresar') {
+  const email = h('input', { type: 'email', required: true, autocomplete: 'username', placeholder: 'tunombre@engel.com' });
+  const password = h('input', {
+    type: 'password',
+    required: modo !== 'olvide',
+    autocomplete: modo === 'crear' ? 'new-password' : 'current-password',
+    placeholder: '••••••••',
+    minLength: 8
+  });
+  const nombre = h('input', { placeholder: 'Nombre y apellido', autocomplete: 'name' });
+
+  const aviso = h('div', { class: 'aviso aviso--error', style: 'display:none' });
+  if (mensaje) {
+    aviso.textContent = mensaje.texto || mensaje;
+    aviso.className = `aviso aviso--${mensaje.tipo || 'error'}`;
+    aviso.style.display = '';
+  }
+
+  const TEXTOS = {
+    ingresar: { boton: 'Ingresar', cargando: 'Ingresando…' },
+    crear: { boton: 'Crear mi cuenta', cargando: 'Creando…' },
+    olvide: { boton: 'Enviarme un email', cargando: 'Enviando…' }
+  };
+
+  const boton = h('button', { class: 'boton boton--primario boton--ancho', type: 'submit' }, TEXTOS[modo].boton);
+
+  const enviar = async (e) => {
+    e.preventDefault();
+    boton.disabled = true;
+    boton.textContent = TEXTOS[modo].cargando;
+    aviso.style.display = 'none';
+
+    try {
+      if (modo === 'olvide') {
+        await api.recuperarPassword(email.value);
+        dibujarIngreso(
+          { texto: 'Te mandamos un email con el link para poner una contrasena nueva.', tipo: 'ok' },
+          'ingresar'
+        );
+        return;
+      }
+
+      if (modo === 'crear') {
+        const { necesitaConfirmar } = await api.registrarse(email.value, password.value, nombre.value);
+        if (necesitaConfirmar) {
+          dibujarIngreso(
+            { texto: 'Cuenta creada. Revisa tu email y confirma la direccion para poder entrar.', tipo: 'ok' },
+            'ingresar'
+          );
+          return;
+        }
+      }
+
+      const { usuario } = await api.login(email.value, password.value);
+      estado.usuario = usuario;
+      await refrescarPendientes();
+      iniciarSincronizacion(() => dibujar());
+      dibujar();
+    } catch (error) {
+      aviso.textContent = error.message;
+      aviso.className = 'aviso aviso--error';
+      aviso.style.display = '';
+      password.value = '';
+    } finally {
+      boton.disabled = false;
+      boton.textContent = TEXTOS[modo].boton;
+    }
+  };
+
+  const cambiarA = (nuevo) => (e) => {
+    e.preventDefault();
+    dibujarIngreso(null, nuevo);
+  };
+
+  const pie =
+    modo === 'ingresar'
+      ? h(
+          'div',
+          { style: 'margin-top:1rem;text-align:center;font-size:.85rem' },
+          h('a', { href: '#', onClick: cambiarA('crear') }, 'Crear mi cuenta'),
+          h('span', { class: 'tenue' }, ' · '),
+          h('a', { href: '#', onClick: cambiarA('olvide') }, 'Olvide mi contrasena')
+        )
+      : h(
+          'div',
+          { style: 'margin-top:1rem;text-align:center;font-size:.85rem' },
+          h('a', { href: '#', onClick: cambiarA('ingresar') }, '← Volver al ingreso')
+        );
+
+  cajaLogin(
+    h(
+      'form',
+      { onSubmit: enviar },
+      aviso,
+      modo === 'crear'
+        ? h('div', { class: 'aviso aviso--info' },
+            'Usa el mismo email con el que te invitaron. Si todavia no te invitaron, pedile a un ' +
+            'administrador de Engel que te sume desde la solapa Equipo.')
+        : null,
+      modo === 'olvide'
+        ? h('p', { class: 'tenue' }, 'Te mandamos un link a tu email para poner una contrasena nueva.')
+        : null,
+      campo('Email', email),
+      modo === 'crear' ? h('div', { style: 'height:.75rem' }) : null,
+      modo === 'crear' ? campo('Nombre', nombre) : null,
+      modo !== 'olvide' ? h('div', { style: 'height:.75rem' }) : null,
+      modo !== 'olvide'
+        ? campo('Contrasena', password, modo === 'crear' ? 'Minimo 8 caracteres. La elegis vos.' : null)
+        : null,
+      h('div', { style: 'height:1.25rem' }),
+      boton
+    ),
+    pie
   );
   email.focus();
 }
@@ -217,12 +286,11 @@ async function cerrarSesion() {
   } finally {
     estado.usuario = null;
     detenerSincronizacion();
-    dibujarLogin();
+    dibujarIngreso();
   }
 }
 
 function abrirCambioPassword() {
-  const actual = h('input', { type: 'password', required: true, autocomplete: 'current-password' });
   const nueva = h('input', { type: 'password', required: true, minLength: 8, autocomplete: 'new-password' });
   const repetir = h('input', { type: 'password', required: true, minLength: 8, autocomplete: 'new-password' });
   const error = h('div', { class: 'aviso aviso--error', style: 'display:none' });
@@ -235,16 +303,14 @@ function abrirCambioPassword() {
       return;
     }
     if (nueva.value.length < 8) {
-      error.textContent = 'La contrasena nueva tiene que tener al menos 8 caracteres.';
+      error.textContent = 'La contrasena tiene que tener al menos 8 caracteres.';
       error.style.display = '';
       return;
     }
     try {
-      await api.cambiarPassword(actual.value, nueva.value);
+      await api.cambiarPassword(null, nueva.value);
       ref.cerrar();
-      if (estado.usuario) estado.usuario.password_provisoria = 0;
       avisar('Contrasena actualizada.');
-      dibujar();
     } catch (err) {
       error.textContent = err.message;
       error.style.display = '';
@@ -252,12 +318,11 @@ function abrirCambioPassword() {
   };
 
   const ref = abrirModal({
-    titulo: 'Cambiar contrasena',
+    titulo: 'Cambiar mi contrasena',
     cuerpo: h(
       'div',
       { class: 'campos' },
       error,
-      campo('Contrasena actual', actual),
       campo('Contrasena nueva', nueva, 'Minimo 8 caracteres'),
       campo('Repetir contrasena nueva', repetir)
     ),
@@ -282,19 +347,27 @@ export async function refrescarPendientes() {
 cuandoSePierdeLaSesion(() => {
   if (!estado.usuario) return;
   estado.usuario = null;
-  dibujarLogin('Tu sesion vencio. Volve a ingresar.');
+  detenerSincronizacion();
+  dibujarIngreso('Tu sesion vencio. Volve a ingresar.');
 });
 
 window.addEventListener('hashchange', dibujar);
 
 (async function iniciar() {
+  if (!estaConfigurado()) {
+    dibujarSinConfigurar();
+    return;
+  }
+
   try {
-    const config = await api.configuracion();
-    estado.config = config;
-    estado.usuario = config.usuario;
-  } catch {
-    vaciar(raiz).append(
-      h('div', { class: 'cargando' }, 'No se pudo conectar con el servidor. Actualiza la pagina.')
+    const configuracion = await api.configuracion();
+    estado.config = configuracion;
+    estado.usuario = configuracion.usuario && configuracion.usuario.activo ? configuracion.usuario : null;
+  } catch (error) {
+    cajaLogin(
+      h('div', { class: 'aviso aviso--error' }, `No se pudo conectar con la base de datos: ${error.message}`),
+      h('p', { class: 'tenue' }, `Revisa que la direccion en config.js sea correcta (${config.url || 'sin definir'}).`),
+      h('button', { class: 'boton boton--ancho', type: 'button', onClick: () => location.reload() }, 'Reintentar')
     );
     return;
   }

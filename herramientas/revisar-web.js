@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
-const RAIZ = path.resolve(__dirname, '..', '..', 'public', 'js');
+const RAIZ = path.resolve(__dirname, '..', 'public', 'js');
 const temporal = fs.mkdtempSync(path.join(os.tmpdir(), 'engel-check-'));
 const problemas = [];
 

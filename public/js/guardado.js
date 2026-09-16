@@ -6,6 +6,15 @@
 // vuelve a abrir la pagina, los cambios pendientes se mandan solos.
 
 import { h } from './util.js';
+import { api } from './api.js';
+
+// Operaciones que se pueden encolar. La cola guarda el nombre y los datos
+// (no la funcion), asi sobrevive a una recarga del navegador.
+const OPERACIONES = {
+  editar_venta: ({ id, datos }) => api.editarVenta(id, datos),
+  editar_documento: ({ id, cambios }) => api.editarDocumento(id, cambios),
+  guardar_borrador: ({ clave, contenido }) => api.guardarBorrador(clave, contenido)
+};
 
 const CLAVE_COLA = 'engel:cola-de-guardado';
 const MAX_INTENTOS = 12;
@@ -87,22 +96,13 @@ export function hayCambiosPendientes() {
 // ---------- Envio ----------
 
 async function mandar(item) {
-  const respuesta = await fetch(item.ruta, {
-    method: item.metodo,
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', 'X-Origen-Cambio': 'guardado-automatico' },
-    body: item.cuerpo === undefined ? undefined : JSON.stringify(item.cuerpo)
-  });
-
-  const tipo = respuesta.headers.get('content-type') || '';
-  const datos = tipo.includes('application/json') ? await respuesta.json() : null;
-
-  if (!respuesta.ok) {
-    const error = new Error((datos && datos.error) || `Error ${respuesta.status}`);
-    error.status = respuesta.status;
+  const operacion = OPERACIONES[item.operacion];
+  if (!operacion) {
+    const error = new Error(`Operacion desconocida: ${item.operacion}`);
+    error.definitivo = true;
     throw error;
   }
-  return datos;
+  return operacion(item.args);
 }
 
 const esperar = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
@@ -123,11 +123,13 @@ async function procesar() {
       ultimoError = '';
       if (item.alConfirmar) item.alConfirmar(datos);
     } catch (error) {
-      // 4xx: el servidor rechazo el dato (por ejemplo, un dominio invalido).
-      // Reintentar no lo va a arreglar, asi que se saca de la cola y se avisa.
-      const esDelCliente = error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
+      // Si la base rechazo el dato (por ejemplo, un dominio invalido) o no
+      // hay permisos, reintentar no lo va a arreglar: se avisa y se saca.
+      const sinSentidoReintentar =
+        error.definitivo ||
+        ['22023', 'P0002', '23505', '42501', '23503', '23514'].includes(error.codigo);
 
-      if (esDelCliente) {
+      if (sinSentidoReintentar) {
         cola.shift();
         escribirCola();
         ultimoError = `${item.descripcion || 'Un cambio'}: ${error.message}`;
@@ -159,8 +161,8 @@ async function procesar() {
  * Si ya habia un cambio pendiente con la misma clave, lo reemplaza: sirve para
  * que escribir varias letras en un campo no genere veinte guardados.
  */
-export function encolar({ clave, metodo = 'PATCH', ruta, cuerpo, descripcion, alConfirmar, alFallar }) {
-  const item = { clave, metodo, ruta, cuerpo, descripcion, intentos: 0, alConfirmar, alFallar };
+export function encolar({ clave, operacion, args, descripcion, alConfirmar, alFallar }) {
+  const item = { clave, operacion, args, descripcion, intentos: 0, alConfirmar, alFallar };
 
   const existente = clave ? cola.findIndex((i, indice) => i.clave === clave && !(indice === 0 && enviando)) : -1;
   if (existente >= 0) cola[existente] = item;

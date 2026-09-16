@@ -2,27 +2,20 @@
   "name": "engel-ventas",
   "version": "1.0.0",
   "private": true,
-  "description": "Sistema de administracion de ventas de vehiculos para concesionaria",
-  "main": "src/server.js",
+  "description": "Administracion de ventas de vehiculos. Web estatica sobre Supabase.",
   "type": "commonjs",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "seed": "node src/scripts/seed.js",
-    "test": "node src/scripts/revisar-web.js && node --test test/*.test.js",
-    "check": "node src/scripts/revisar-web.js"
+    "dev": "node herramientas/servidor-local.js",
+    "check": "node herramientas/revisar-web.js",
+    "prueba-sql": "bash supabase/pruebas/correr.sh",
+    "prueba-web": "bash herramientas/pruebas/levantar.sh && node herramientas/pruebas/web.mjs",
+    "test": "node herramientas/revisar-web.js"
   },
-  "dependencies": {
-    "archiver": "^7.0.1",
-    "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.10.0",
-    "cookie-parser": "^1.4.7",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.2",
-    "multer": "^2.4.0"
+  "devDependencies": {
+    "jszip": "^3.10.2",
+    "pg": "^8.23.0"
   }
 }

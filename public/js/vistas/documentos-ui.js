@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { encolar } from '../guardado.js';
+import { descargarArchivo, descargarZipDominio } from '../descargas.js';
 import {
   h, vaciar, avisar, confirmar, fechaHora, tamano, etiquetaDominio,
   barraProgreso, ESTADOS_DOCUMENTO, opciones
@@ -9,7 +10,21 @@ function chipArchivo(archivo, alBorrar) {
   return h(
     'span',
     { class: 'archivo', title: `${archivo.nombre_original} · ${tamano(archivo.tamano)} · subido por ${archivo.subido_por_nombre || 'alguien'} el ${fechaHora(archivo.subido_en)}` },
-    h('a', { href: api.urlArchivo(archivo.id), download: archivo.nombre_original }, `📄 ${archivo.nombre_original}`),
+    h(
+      'a',
+      {
+        href: '#',
+        onClick: async (e) => {
+          e.preventDefault();
+          try {
+            await descargarArchivo(archivo);
+          } catch (error) {
+            avisar(error.message, 'error');
+          }
+        }
+      },
+      `📄 ${archivo.nombre_original}`
+    ),
     h('span', { class: 'mini' }, tamano(archivo.tamano)),
     h(
       'button',
@@ -42,9 +57,8 @@ function filaDocumento(item, alActualizar) {
   selector.addEventListener('change', () => {
     encolar({
       clave: `documento:${item.id}:estado`,
-      metodo: 'PATCH',
-      ruta: `/api/documentos/${item.id}`,
-      cuerpo: { estado: selector.value },
+      operacion: 'editar_documento',
+      args: { id: item.id, cambios: { estado: selector.value } },
       descripcion: `Estado de ${item.etiqueta}`,
       alConfirmar: ({ documentacion }) => alActualizar(documentacion),
       alFallar: (error) => {
@@ -64,9 +78,8 @@ function filaDocumento(item, alActualizar) {
     if (observaciones.value === (item.observaciones || '')) return;
     encolar({
       clave: `documento:${item.id}:observaciones`,
-      metodo: 'PATCH',
-      ruta: `/api/documentos/${item.id}`,
-      cuerpo: { observaciones: observaciones.value },
+      operacion: 'editar_documento',
+      args: { id: item.id, cambios: { observaciones: observaciones.value } },
       descripcion: `Observaciones de ${item.etiqueta}`,
       alConfirmar: ({ documentacion }) => alActualizar(documentacion),
       alFallar: (error) => avisar(error.message, 'error')
@@ -80,10 +93,8 @@ function filaDocumento(item, alActualizar) {
 
   entrada.addEventListener('change', async () => {
     if (!entrada.files.length) return;
-    const formulario = new FormData();
-    for (const archivo of entrada.files) formulario.append('archivos', archivo);
-
-    const cantidad = entrada.files.length;
+    const elegidos = [...entrada.files];
+    const cantidad = elegidos.length;
     botonSubir.disabled = true;
 
     const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -93,7 +104,7 @@ function filaDocumento(item, alActualizar) {
     for (let intento = 0; intento <= ESPERAS.length; intento += 1) {
       botonSubir.textContent = intento === 0 ? 'Subiendo…' : `Reintentando (${intento})…`;
       try {
-        const { documentacion } = await api.subirArchivos(item.id, formulario);
+        const { documentacion } = await api.subirArchivos(item.id, elegidos);
         avisar(`${cantidad} archivo(s) cargados en ${item.etiqueta}.`);
         alActualizar(documentacion);
         ultimoError = null;
@@ -130,6 +141,33 @@ function filaDocumento(item, alActualizar) {
   );
 }
 
+// Boton que arma el ZIP con toda la documentacion de un dominio.
+export function botonZip(dominio, texto = '⬇️ ZIP') {
+  const boton = h(
+    'button',
+    {
+      class: 'boton boton--chico',
+      type: 'button',
+      onClick: async () => {
+        boton.disabled = true;
+        const original = boton.textContent;
+        try {
+          await descargarZipDominio(dominio, {
+            alAvanzar: (hechos, total) => { boton.textContent = `Armando ${hechos}/${total}…`; }
+          });
+        } catch (error) {
+          avisar(error.message, 'error');
+        } finally {
+          boton.disabled = false;
+          boton.textContent = original;
+        }
+      }
+    },
+    texto
+  );
+  return boton;
+}
+
 // Tarjeta con el checklist de documentacion de un auto de la operacion.
 export function tarjetaDocumentacion(grupo, alActualizar) {
   const completo = grupo.listos === grupo.total;
@@ -150,7 +188,7 @@ export function tarjetaDocumentacion(grupo, alActualizar) {
         'span',
         { class: 'derecha' },
         barraProgreso(grupo.listos, grupo.total),
-        h('a', { class: 'boton boton--chico', href: api.urlZipDominio(grupo.dominio) }, '⬇️ ZIP')
+        botonZip(grupo.dominio)
       )
     ),
     h('div', { class: 'tarjeta__cuerpo' }, ...grupo.items.map((item) => filaDocumento(item, alActualizar)))

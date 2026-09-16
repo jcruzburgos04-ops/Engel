@@ -4,6 +4,8 @@ import {
   etiquetaEstadoVenta, etiquetaTenencia, descripcionVehiculo, vacio, ESTADOS_DOCUMENTO
 } from '../util.js';
 import { encabezado } from '../app.js';
+import { descargarArchivo } from '../descargas.js';
+import { botonZip } from './documentos-ui.js';
 
 function fichaVehiculo(vehiculo) {
   const filas = [
@@ -24,7 +26,7 @@ function fichaVehiculo(vehiculo) {
       etiquetaDominio(vehiculo.dominio),
       h('span', {}, descripcionVehiculo(vehiculo)),
       etiquetaTenencia(vehiculo.tenencia),
-      h('span', { class: 'derecha' }, h('a', { class: 'boton boton--primario boton--chico', href: api.urlZipDominio(vehiculo.dominio) }, '⬇️ Descargar toda la documentacion'))
+      h('span', { class: 'derecha' }, botonZip(vehiculo.dominio, '⬇️ Descargar toda la documentacion'))
     ),
     h(
       'div',
@@ -106,7 +108,18 @@ function tablaDocumentos(documentos) {
                   ? h('div', { style: 'display:flex;flex-wrap:wrap;gap:.35rem' },
                       ...doc.archivos.map((archivo) =>
                         h('span', { class: 'archivo' },
-                          h('a', { href: api.urlArchivo(archivo.id), download: archivo.nombre_original, title: `Subido el ${fechaHora(archivo.subido_en)}` }, `📄 ${archivo.nombre_original}`),
+                          h('a', {
+                            href: '#',
+                            title: `Subido el ${fechaHora(archivo.subido_en)}`,
+                            onClick: async (e) => {
+                              e.preventDefault();
+                              try {
+                                await descargarArchivo(archivo);
+                              } catch (error) {
+                                avisar(error.message, 'error');
+                              }
+                            }
+                          }, `📄 ${archivo.nombre_original}`),
                           h('span', { class: 'mini' }, tamano(archivo.tamano)))))
                   : h('span', { class: 'tenue' }, 'Sin archivos')
               ),
