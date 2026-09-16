@@ -580,11 +580,22 @@ CREATE OR REPLACE FUNCTION public.normalizar_dominio(p_dominio text)
 RETURNS text LANGUAGE sql IMMUTABLE
 AS $$ SELECT upper(regexp_replace(COALESCE(p_dominio, ''), '[^A-Za-z0-9]', '', 'g')) $$;
 
--- Acepta el formato viejo (AAA123), el del Mercosur (AB123CD) y el de motos.
+-- Los cuatro formatos que circulan en el pais:
+--   AAA123    auto anterior a 2016
+--   AB123CD   auto Mercosur (2016 en adelante)
+--   123ABC    moto anterior a 2016
+--   A123BCD   moto Mercosur (2016 en adelante)
 CREATE OR REPLACE FUNCTION public.dominio_valido(p_dominio text)
 RETURNS boolean LANGUAGE sql IMMUTABLE
 AS $$
-  SELECT public.normalizar_dominio(p_dominio) ~ '^([A-Z]{3}[0-9]{3}|[A-Z]{2}[0-9]{3}[A-Z]{2}|[A-Z][0-9]{3}[A-Z]{3})$'
+  SELECT public.normalizar_dominio(p_dominio) ~ (
+    '^('
+    || '[A-Z]{3}[0-9]{3}'          -- auto viejo:  AAA123
+    || '|[A-Z]{2}[0-9]{3}[A-Z]{2}' -- auto Mercosur: AB123CD
+    || '|[0-9]{3}[A-Z]{3}'         -- moto vieja:  123ABC
+    || '|[A-Z][0-9]{3}[A-Z]{3}'    -- moto Mercosur: A123BCD
+    || ')$'
+  )
 $$;
 
 -- ---------------------------------------------------------------------
@@ -630,7 +641,7 @@ BEGIN
     RAISE EXCEPTION 'El dominio (patente) es obligatorio.' USING ERRCODE = '22023';
   END IF;
   IF NOT public.dominio_valido(v_dominio) THEN
-    RAISE EXCEPTION 'El dominio "%" no tiene un formato valido. Ejemplos: AAA123, AB123CD.', p_datos ->> 'dominio'
+    RAISE EXCEPTION 'El dominio "%" no tiene un formato valido. Autos: AAA123 o AB123CD. Motos: 123ABC o A123BCD.', p_datos ->> 'dominio'
       USING ERRCODE = '22023';
   END IF;
 

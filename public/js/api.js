@@ -49,23 +49,24 @@ function revisar({ data, error }) {
 // se revisa antes y se avisa que hay que volver a ingresar.
 async function clienteConSesion() {
   const cliente = await conLimiteDeEspera(conectar(), ESPERA_CONSULTA_MS, 'La conexion con la base');
+  // getSession() lee la sesion guardada en el navegador: no sale a la red.
   const { data } = await conLimiteDeEspera(cliente.auth.getSession(), ESPERA_CONSULTA_MS, 'Tu sesion');
 
   if (!data || !data.session) {
     alPerderSesion();
     throw new ErrorApi('Tu sesion vencio. Volve a ingresar.', 'SIN_SESION');
   }
-  return cliente;
+  return { cliente, usuario: data.session.user };
 }
 
 async function rpc(nombre, args = {}) {
-  const cliente = await clienteConSesion();
+  const { cliente } = await clienteConSesion();
   return revisar(await conLimiteDeEspera(cliente.rpc(nombre, args)));
 }
 
 // Igual que rpc pero para las consultas directas a una tabla.
 async function consultar(armar, queEs = 'La consulta') {
-  const cliente = await clienteConSesion();
+  const { cliente } = await clienteConSesion();
   return conLimiteDeEspera(armar(cliente), ESPERA_CONSULTA_MS, queEs);
 }
 
@@ -162,7 +163,7 @@ export const api = {
   },
 
   async invitaciones() {
-    const cliente = await conectar();
+    const { cliente } = await clienteConSesion();
     const data = revisar(
       await cliente.from('invitaciones').select('*').order('creado_en', { ascending: false })
     );
@@ -170,7 +171,7 @@ export const api = {
   },
 
   async invitar({ email, nombre, rol }) {
-    const cliente = await conectar();
+    const { cliente } = await clienteConSesion();
     revisar(
       await cliente.from('invitaciones').upsert(
         { email: String(email).trim().toLowerCase(), nombre: String(nombre || '').trim(), rol: rol || 'vendedor' },
@@ -181,13 +182,13 @@ export const api = {
   },
 
   async quitarInvitacion(email) {
-    const cliente = await conectar();
+    const { cliente } = await clienteConSesion();
     revisar(await cliente.from('invitaciones').delete().eq('email', email));
     return { ok: true };
   },
 
   async editarUsuario(id, cambios) {
-    const cliente = await conectar();
+    const { cliente } = await clienteConSesion();
     const permitidos = {};
     if (cambios.nombre !== undefined) permitidos.nombre = cambios.nombre;
     if (cambios.rol !== undefined) permitidos.rol = cambios.rol;
@@ -239,12 +240,11 @@ export const api = {
   },
 
   async agregarNota(ventaId, texto) {
-    const cliente = await conectar();
-    const { data: sesion } = await cliente.auth.getUser();
+    const { cliente, usuario } = await clienteConSesion();
     revisar(
       await cliente.from('notas').insert({
         venta_id: Number(ventaId),
-        usuario_id: sesion.user.id,
+        usuario_id: usuario.id,
         texto: String(texto).slice(0, 2000)
       })
     );
@@ -252,7 +252,7 @@ export const api = {
   },
 
   async borrarNota(ventaId, notaId) {
-    const cliente = await conectar();
+    const { cliente } = await clienteConSesion();
     revisar(await cliente.from('notas').delete().eq('id', notaId));
     return api.venta(ventaId);
   },
@@ -274,13 +274,12 @@ export const api = {
   },
 
   async editarDocumento(id, cambios) {
-    const cliente = await conectar();
-    const { data: sesion } = await cliente.auth.getUser();
+    const { cliente, usuario } = await clienteConSesion();
 
     const fila = revisar(
       await cliente
         .from('documentos')
-        .update({ ...cambios, actualizado_por: sesion.user.id, actualizado_en: new Date().toISOString() })
+        .update({ ...cambios, actualizado_por: usuario.id, actualizado_en: new Date().toISOString() })
         .eq('id', id)
         .select('venta_id')
         .single()
@@ -300,8 +299,7 @@ export const api = {
       throw new ErrorApi('No se recibio ningun archivo para subir.');
     }
 
-    const cliente = await conectar();
-    const { data: sesion } = await cliente.auth.getUser();
+    const { cliente, usuario } = await clienteConSesion();
 
     const documento = revisar(
       await cliente.from('documentos').select('venta_id, vehiculo_id, tipo, estado').eq('id', documentoId).single()
@@ -335,7 +333,7 @@ export const api = {
             ruta,
             mime: archivo.type || 'application/octet-stream',
             tamano: archivo.size,
-            subido_por: sesion.user.id
+            subido_por: usuario.id
           })
         );
       }
@@ -345,7 +343,7 @@ export const api = {
         revisar(
           await cliente
             .from('documentos')
-            .update({ estado: 'ok', actualizado_por: sesion.user.id, actualizado_en: new Date().toISOString() })
+            .update({ estado: 'ok', actualizado_por: usuario.id, actualizado_en: new Date().toISOString() })
             .eq('id', documentoId)
         );
       }
@@ -359,7 +357,7 @@ export const api = {
   },
 
   async borrarArchivo(archivoId) {
-    const cliente = await conectar();
+    const { cliente } = await clienteConSesion();
     const archivo = revisar(
       await cliente.from('archivos').select('id, ruta, documento_id').eq('id', archivoId).single()
     );
@@ -375,7 +373,7 @@ export const api = {
 
   // Enlace temporal para bajar un archivo. Sin sesion no sirve de nada.
   async enlaceDescarga(archivo, { segundos = 300 } = {}) {
-    const cliente = await conectar();
+    const { cliente } = await clienteConSesion();
     const { data, error } = await cliente.storage
       .from(config.deposito)
       .createSignedUrl(archivo.ruta, segundos, { download: archivo.nombre_original });
@@ -385,7 +383,7 @@ export const api = {
   },
 
   async descargarArchivo(archivo) {
-    const cliente = await conectar();
+    const { cliente } = await clienteConSesion();
     const { data, error } = await conLimiteDeEspera(
       cliente.storage.from(config.deposito).download(archivo.ruta),
       ESPERA_ARCHIVO_MS,
@@ -428,14 +426,12 @@ export const api = {
   // ---------------------------------------------------------------------
 
   async leerBorrador(clave) {
-    const cliente = await conectar();
-    const { data: sesion } = await cliente.auth.getUser();
-    if (!sesion.user) return null;
+    const { cliente, usuario } = await clienteConSesion();
 
     const { data } = await cliente
       .from('borradores')
       .select('contenido, actualizado_en')
-      .eq('usuario_id', sesion.user.id)
+      .eq('usuario_id', usuario.id)
       .eq('clave', clave)
       .maybeSingle();
 
@@ -443,14 +439,12 @@ export const api = {
   },
 
   async guardarBorrador(clave, contenido) {
-    const cliente = await conectar();
-    const { data: sesion } = await cliente.auth.getUser();
-    if (!sesion.user) return { ok: false };
+    const { cliente, usuario } = await clienteConSesion();
 
     revisar(
       await cliente.from('borradores').upsert(
         {
-          usuario_id: sesion.user.id,
+          usuario_id: usuario.id,
           clave,
           contenido,
           actualizado_en: new Date().toISOString()
@@ -462,10 +456,8 @@ export const api = {
   },
 
   async descartarBorrador(clave) {
-    const cliente = await conectar();
-    const { data: sesion } = await cliente.auth.getUser();
-    if (!sesion.user) return { ok: true };
-    await cliente.from('borradores').delete().eq('usuario_id', sesion.user.id).eq('clave', clave);
+    const { cliente, usuario } = await clienteConSesion();
+    await cliente.from('borradores').delete().eq('usuario_id', usuario.id).eq('clave', clave);
     return { ok: true };
   }
 };

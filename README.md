@@ -275,8 +275,9 @@ Sin framework ni paso de compilacion: el navegador carga los archivos de
   no se ve ni una fila, y lo mismo para los archivos.
 - El historial lo escriben disparadores `AFTER INSERT/UPDATE/DELETE`, dentro de
   la misma transaccion que el cambio.
-- Los dominios se normalizan a mayusculas sin espacios y se valida el formato
-  viejo (`AAA123`), el del Mercosur (`AB123CD`) y el de motos (`A123BCD`).
+- Los dominios se normalizan a mayusculas sin espacios y se validan los cuatro
+  formatos que circulan en el pais: autos `AAA123` (anterior a 2016) y
+  `AB123CD` (Mercosur); motos `123ABC` (anterior a 2016) y `A123BCD` (Mercosur).
 - Los archivos se guardan con un nombre unico por venta, auto y tipo de
   documento, asi dos personas que suben a la vez no se pisan.
 - El ZIP y los CSV se arman en el navegador, sin servidor propio.

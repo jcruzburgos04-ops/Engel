@@ -74,10 +74,14 @@ SELECT verificar('la invitacion queda marcada como usada',
 \echo '== Dominios =='
 
 SELECT verificar('normaliza el dominio', public.normalizar_dominio('ab 123-cd') = 'AB123CD');
-SELECT verificar('acepta el formato viejo', public.dominio_valido('AAA123'));
-SELECT verificar('acepta el formato Mercosur', public.dominio_valido('ab123cd'));
-SELECT verificar('acepta patente de moto', public.dominio_valido('A123BCD'));
+SELECT verificar('auto anterior a 2016 (AAA123)', public.dominio_valido('AAA123'));
+SELECT verificar('auto Mercosur (AB123CD)', public.dominio_valido('ab123cd'));
+SELECT verificar('moto anterior a 2016 (590LLL)', public.dominio_valido('590LLL'));
+SELECT verificar('moto anterior a 2016 con espacios (590 LLL)', public.dominio_valido('590 LLL'));
+SELECT verificar('moto Mercosur (A123BCD)', public.dominio_valido('A123BCD'));
 SELECT verificar('rechaza cualquier cosa', NOT public.dominio_valido('NO-ES-UN-DOMINIO'));
+SELECT verificar('rechaza algo parecido pero mal', NOT public.dominio_valido('DUKE390'));
+SELECT verificar('rechaza si faltan caracteres', NOT public.dominio_valido('59LLL'));
 
 \echo ''
 \echo '== Cargar una venta con permuta =='
@@ -145,6 +149,24 @@ SELECT debe_fallar('exige el nombre del cliente',
 SELECT debe_fallar('exige el consignante si el auto esta en consigna',
   $$ SELECT public.crear_venta('{"vendedor_id":"22222222-2222-2222-2222-222222222222","cliente_nombre":"X","vehiculo":{"dominio":"CD456EF","tenencia":"consigna"}}'::jsonb) $$,
   'consignante');
+
+\echo ''
+\echo '== Cargar una moto =='
+
+SELECT public.crear_venta(jsonb_build_object(
+  'fecha_venta', '2026-09-02',
+  'vendedor_id', '22222222-2222-2222-2222-222222222222',
+  'cliente_nombre', 'Comprador de Moto',
+  'vehiculo', jsonb_build_object(
+    'dominio', '590 LLL', 'marca', 'KTM', 'modelo', 'Duke', 'version', 'DUKE 390', 'anio', 2019)
+)) AS moto_id \gset
+
+SELECT verificar('se puede cargar una venta de moto',
+  (SELECT dominio = '590LLL' FROM public.vehiculos v
+    JOIN public.ventas ve ON ve.vehiculo_id = v.id WHERE ve.id = :moto_id));
+
+SELECT verificar('la moto tambien genera su checklist',
+  (SELECT count(*) = 8 FROM public.documentos WHERE venta_id = :moto_id));
 
 \echo ''
 \echo '== Guardado campo por campo =='
@@ -238,8 +260,12 @@ SELECT verificar('el listado filtra por estado',
   (SELECT (public.listar_ventas('{"estado":"entregado"}'::jsonb) ->> 'total')::int = 0));
 
 SELECT verificar('el listado cuenta las permutas y la documentacion',
-  (SELECT (public.listar_ventas('{}'::jsonb) -> 'ventas' -> 0 ->> 'cantidad_permutas')::int = 1
-      AND (public.listar_ventas('{}'::jsonb) -> 'ventas' -> 0 ->> 'documentos_total')::int = 16));
+  (SELECT (fila ->> 'cantidad_permutas')::int = 1 AND (fila ->> 'documentos_total')::int = 16
+     FROM jsonb_array_elements(public.listar_ventas('{}'::jsonb) -> 'ventas') AS fila
+    WHERE (fila ->> 'id')::bigint = :venta_id));
+
+SELECT verificar('el listado trae las dos ventas',
+  (SELECT (public.listar_ventas('{}'::jsonb) ->> 'total')::int = 2));
 
 \echo ''
 \echo '== Buscar por dominio =='
@@ -262,7 +288,10 @@ SELECT verificar('un dominio que no existe devuelve vacio',
 \echo '== Panel de documentacion y numeros =='
 
 SELECT verificar('el panel muestra los autos con papeles pendientes',
-  (SELECT jsonb_array_length(public.panel_documentacion(true, '')) = 2));
+  (SELECT jsonb_array_length(public.panel_documentacion(true, '')) = 3));
+
+SELECT verificar('el panel encuentra la moto por su dominio',
+  (SELECT jsonb_array_length(public.panel_documentacion(true, '590LLL')) = 1));
 
 SELECT verificar('el panel cuenta los archivos cargados',
   (SELECT count(*) = 1 FROM jsonb_array_elements(public.panel_documentacion(true, '')) f
@@ -272,8 +301,8 @@ SELECT verificar('las estadisticas no traen totales por vendedor',
   (SELECT NOT (public.estadisticas() ? 'porVendedor')));
 
 SELECT verificar('las estadisticas traen los numeros generales',
-  (SELECT (public.estadisticas() ->> 'ventas_totales')::int = 1
-      AND (public.estadisticas() ->> 'documentos_pendientes')::int = 15));
+  (SELECT (public.estadisticas() ->> 'ventas_totales')::int = 2
+      AND (public.estadisticas() ->> 'documentos_pendientes')::int = 23));
 
 \echo ''
 \echo '== Permutas =='

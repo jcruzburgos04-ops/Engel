@@ -41,7 +41,7 @@ export function camposVehiculo(datos = {}, { conTenencia = true, requerido = tru
   const contenedor = h(
     'div',
     { class: 'campos' },
-    campo('Dominio (patente)', controles.dominio, 'Formato AAA123 o AB123CD'),
+    campo('Dominio (patente)', controles.dominio, 'Autos: AAA123 o AB123CD · Motos: 123ABC o A123BCD'),
     campo('Marca', controles.marca),
     campo('Modelo', controles.modelo),
     campo('Version', controles.version),

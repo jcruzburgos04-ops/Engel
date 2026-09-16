@@ -128,7 +128,12 @@ function responder(res, codigo, cuerpo) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': '*',
-    'Access-Control-Allow-Methods': '*'
+    'Access-Control-Allow-Methods': '*',
+    // Cada pedido usa su propia conexion. Reutilizarlas abria una carrera:
+    // si el navegador mandaba un POST justo cuando el servidor cerraba la
+    // conexion, el pedido se perdia sin respuesta y sin error. En una prueba
+    // local el costo de abrir una conexion por pedido es despreciable.
+    Connection: 'close'
   });
   res.end(JSON.stringify(cuerpo));
 }
@@ -290,8 +295,7 @@ function servirModulo(res, codigo) {
   res.end(codigo);
 }
 
-http
-  .createServer((req, res) => {
+const servidor = http.createServer((req, res) => {
     if (req.method === 'OPTIONS') return responder(res, 204, {});
 
     if (req.url.startsWith('/supabase-falso.js')) {
@@ -321,13 +325,34 @@ http
       const manejador = RUTAS[ruta];
       if (!manejador) return responder(res, 404, { error: { message: `Ruta desconocida: ${ruta}` } });
 
+      const arranque = Date.now();
+      const detalle = ruta === 'rpc' || ruta === 'tabla'
+        ? `${ruta}:${(JSON.parse(cuerpo || '{}').funcion || JSON.parse(cuerpo || '{}').tabla || '')}`
+        : ruta;
+
+      const avisarSiTarda = setTimeout(
+        () => console.warn(`[falso] ${detalle} lleva mas de 3s sin contestar`),
+        3000
+      );
+
       try {
         const datos = await manejador(cuerpo ? JSON.parse(cuerpo) : {});
         return responder(res, 200, { data: datos === undefined ? null : datos, error: null });
       } catch (error) {
         return responder(res, 200, { data: null, error: errorDe(error) });
+      } finally {
+        clearTimeout(avisarSiTarda);
+        const duracion = Date.now() - arranque;
+        if (duracion > 1500) console.warn(`[falso] ${detalle} tardo ${duracion}ms`);
       }
     });
     return undefined;
-  })
-  .listen(PUERTO, () => console.log(`[falso] Supabase de pruebas en http://127.0.0.1:${PUERTO}`));
+});
+
+// Sin reutilizacion de conexiones (ver responder()), pero por las dudas
+// tampoco se cortan solas mientras un pedido esta en curso.
+servidor.keepAliveTimeout = 0;
+servidor.headersTimeout = 60000;
+servidor.requestTimeout = 0;
+
+servidor.listen(PUERTO, () => console.log(`[falso] Supabase de pruebas en http://127.0.0.1:${PUERTO}`));

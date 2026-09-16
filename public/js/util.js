@@ -102,11 +102,36 @@ export function tamano(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Los cuatro formatos que circulan en el pais, separados para leerlos mejor.
+const FORMATOS_DOMINIO = [
+  { patron: /^[A-Z]{3}\d{3}$/, cortes: [3] },          // auto viejo:    AAA 123
+  { patron: /^[A-Z]{2}\d{3}[A-Z]{2}$/, cortes: [2, 5] }, // auto Mercosur: AB 123 CD
+  { patron: /^\d{3}[A-Z]{3}$/, cortes: [3] },          // moto vieja:    123 ABC
+  { patron: /^[A-Z]\d{3}[A-Z]{3}$/, cortes: [1, 4] }    // moto Mercosur: A 123 BCD
+];
+
+export function normalizarDominio(dominio) {
+  return String(dominio || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+export function dominioEsValido(dominio) {
+  const d = normalizarDominio(dominio);
+  return FORMATOS_DOMINIO.some(({ patron }) => patron.test(d));
+}
+
 export function formatearDominio(dominio) {
-  const d = String(dominio || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (/^[A-Z]{3}\d{3}$/.test(d)) return `${d.slice(0, 3)} ${d.slice(3)}`;
-  if (/^[A-Z]{2}\d{3}[A-Z]{2}$/.test(d)) return `${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5)}`;
-  return d;
+  const d = normalizarDominio(dominio);
+  const formato = FORMATOS_DOMINIO.find(({ patron }) => patron.test(d));
+  if (!formato) return d;
+
+  const partes = [];
+  let desde = 0;
+  for (const corte of formato.cortes) {
+    partes.push(d.slice(desde, corte));
+    desde = corte;
+  }
+  partes.push(d.slice(desde));
+  return partes.join(' ');
 }
 
 export function descripcionVehiculo(v) {

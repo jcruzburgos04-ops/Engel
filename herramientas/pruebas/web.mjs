@@ -198,11 +198,34 @@ const menuLucia = await p2.locator('.menu').innerText();
 ok(!/Equipo/.test(menuLucia), 'una vendedora no ve la solapa Equipo');
 
 await p2.click('a[href="#/ventas"]');
-// Esperar a que lleguen las filas, no solo a que exista la tabla: el
-// listado se dibuja vacio y se completa cuando responde la base.
-await p2.waitForSelector('tbody tr', { timeout: 15000 }).catch(() => {});
-const ventasLucia = await p2.locator('tbody tr').count();
-ok(ventasLucia === 1, 've las ventas cargadas por el equipo');
+
+// Muy de vez en cuando el doble de pruebas pierde un pedido (ver el
+// comentario en supabase-falso.js). Cuando pasa, la web avisa del problema
+// a los 20 segundos, igual que en produccion. La prueba hace lo que haria
+// una persona: volver a cargar. Si falla las dos veces, es un problema real.
+async function esperarFilas(intentos = 3) {
+  for (let intento = 1; intento <= intentos; intento += 1) {
+    const hayFilas = await p2
+      .waitForSelector('tbody tr', { timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (hayFilas) {
+      const cuantas = await p2.locator('tbody tr').count();
+      if (cuantas > 0) return cuantas;
+    }
+
+    if (intento === intentos) return 0;
+
+    console.log(`    (intento ${intento}: el doble perdio un pedido; se vuelve a cargar)`);
+    await p2.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+    await p2.waitForSelector('.menu', { timeout: 20000 }).catch(() => {});
+  }
+  return 0;
+}
+
+const ventasLucia = await esperarFilas();
+ok(ventasLucia === 1, `ve las ventas cargadas por el equipo (${ventasLucia} fila/s)`);
 
 if (ventasLucia !== 1) {
   console.log('    direccion:', p2.url());

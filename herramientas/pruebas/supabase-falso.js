@@ -5,37 +5,67 @@
 const SERVIDOR = globalThis.__ENGEL_SERVIDOR_FALSO__ || 'http://127.0.0.1:5555';
 const LLAVE_TOKEN = 'engel:token-prueba';
 
-// El token vive en memoria y ademas en localStorage (para que sobreviva a una
-// recarga). La memoria manda: asi no hay carrera entre escribir y leer.
-let tokenEnMemoria = null;
+// Igual que supabase-js: la sesion entera (token + usuario) se guarda del
+// lado del navegador, asi getSession() no necesita pedir nada por la red.
+let sesionEnMemoria = null;
 
-function token() {
-  if (tokenEnMemoria) return tokenEnMemoria;
+function sesion() {
+  if (sesionEnMemoria) return sesionEnMemoria;
   try {
-    tokenEnMemoria = localStorage.getItem(LLAVE_TOKEN) || null;
+    const guardada = localStorage.getItem(LLAVE_TOKEN);
+    sesionEnMemoria = guardada ? JSON.parse(guardada) : null;
   } catch {
-    tokenEnMemoria = null;
+    sesionEnMemoria = null;
   }
-  return tokenEnMemoria;
+  return sesionEnMemoria;
 }
 
-function guardarToken(valor) {
-  tokenEnMemoria = valor || null;
+function token() {
+  const s = sesion();
+  return s ? s.access_token : null;
+}
+
+function guardarSesion(valor) {
+  sesionEnMemoria = valor || null;
   try {
-    if (valor) localStorage.setItem(LLAVE_TOKEN, valor);
+    if (valor) localStorage.setItem(LLAVE_TOKEN, JSON.stringify(valor));
     else localStorage.removeItem(LLAVE_TOKEN);
   } catch {
     // Sin localStorage la sesion dura lo que dure la pagina.
   }
 }
 
+// Muy de vez en cuando un POST al servidor de pruebas se pierde en el camino
+// y nunca vuelve: el servidor no lo registra siquiera. Es una limitacion del
+// doble (un servidor HTTP minimo de Node contra Chromium), no de la web: en
+// produccion esto va por HTTPS contra Supabase.
+// Para que las pruebas no fallen por eso, se corta a los 8 segundos y se
+// reintenta una vez, avisando por consola para que no pase desapercibido.
+const ESPERA_MS = 8000;
+
+async function pedirUnaVez(ruta, cuerpo) {
+  const corte = new AbortController();
+  const reloj = setTimeout(() => corte.abort(), ESPERA_MS);
+  try {
+    const respuesta = await fetch(`${SERVIDOR}/${ruta}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...cuerpo, token: token() }),
+      signal: corte.signal
+    });
+    return await respuesta.json();
+  } finally {
+    clearTimeout(reloj);
+  }
+}
+
 async function pedir(ruta, cuerpo = {}) {
-  const respuesta = await fetch(`${SERVIDOR}/${ruta}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...cuerpo, token: token() })
-  });
-  return respuesta.json();
+  try {
+    return await pedirUnaVez(ruta, cuerpo);
+  } catch (error) {
+    console.warn(`[doble de pruebas] se perdio el pedido a ${ruta} (${error.name}); se reintenta`);
+    return pedirUnaVez(ruta, cuerpo);
+  }
 }
 
 // Constructor de consultas con la misma cadena de metodos que supabase-js.
@@ -150,7 +180,7 @@ export function createClient() {
       async signInWithPassword({ email, password }) {
         const { data, error } = await pedir('auth/signin', { email, password });
         if (error) return { data: null, error };
-        guardarToken(data.session.access_token);
+        guardarSesion(data.session);
         return { data, error: null };
       },
       async signUp({ email, password, options = {} }) {
@@ -160,21 +190,22 @@ export function createClient() {
           nombre: (options.data || {}).nombre
         });
         if (error) return { data: null, error };
-        guardarToken(data.session.access_token);
+        guardarSesion(data.session);
         return { data, error: null };
       },
       async signOut() {
         await pedir('auth/signout');
-        guardarToken(null);
+        guardarSesion(null);
         return { error: null };
       },
+      // Sin red: la sesion ya esta guardada del lado del navegador.
       async getSession() {
-        const { data } = await pedir('auth/session');
-        return { data: data || { session: null }, error: null };
+        const s = sesion();
+        return { data: { session: s || null }, error: null };
       },
       async getUser() {
-        const { data } = await pedir('auth/session');
-        return { data: { user: (data && data.user) || null }, error: null };
+        const s = sesion();
+        return { data: { user: (s && s.user) || null }, error: null };
       },
       async updateUser({ password }) {
         return pedir('auth/update', { password });
