@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import {
-  h, vaciar, fecha, diasHasta, avisar, etiquetaDominio, etiquetaTenencia, barraProgreso, vacio, campo
+  h, vaciar, fecha, diasHasta, avisar, etiquetaDominio, etiquetaTenencia, barraProgreso,
+  vacio, campo, campoCasilla
 } from '../util.js';
 import { encabezado } from '../app.js';
 import { descargarDocumentacionCsv } from '../descargas.js';
@@ -134,10 +135,7 @@ export async function vistaDocumentacion() {
         'div',
         { class: 'filtros' },
         (() => { const c = campo('Buscar', buscador); c.classList.add('campo--busqueda'); return c; })(),
-        h('label', { class: 'campo', style: 'flex:0 0 auto' },
-          h('span', { style: 'font-size:.8rem;font-weight:600;color:var(--texto-suave)' }, ' '),
-          h('span', { style: 'display:flex;align-items:center;gap:.4rem;padding:.5rem 0' },
-            verTodos, 'Ver tambien las que estan completas'))
+        campoCasilla('Ver tambien las completas', verTodos)
       )
     )
   );

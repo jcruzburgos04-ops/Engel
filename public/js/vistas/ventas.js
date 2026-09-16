@@ -1,7 +1,8 @@
 import { api } from '../api.js';
 import {
   h, vaciar, fecha, dinero, diasHasta, avisar, etiquetaEstadoVenta, etiquetaDominio,
-  etiquetaTenencia, descripcionVehiculo, barraProgreso, vacio, campo, opciones, ESTADOS_VENTA
+  etiquetaTenencia, descripcionVehiculo, barraProgreso, vacio, campo, campoCasilla,
+  opciones, ESTADOS_VENTA
 } from '../util.js';
 import { encabezado, estado as estadoApp } from '../app.js';
 import { descargarVentasCsv } from '../descargas.js';
@@ -224,13 +225,7 @@ export async function vistaVentas() {
         { class: 'filtros' },
         (() => { const c = campo('Buscar', controles.q); c.classList.add('campo--busqueda'); return c; })(),
         campo('Estado', controles.estado),
-        h(
-          'label',
-          { class: 'campo', style: 'flex:0 0 auto' },
-          h('span', { style: 'font-size:.8rem;font-weight:600;color:var(--texto-suave)' }, '\u00a0'),
-          h('span', { style: 'display:flex;align-items:center;gap:.4rem;padding:.5rem 0;white-space:nowrap' },
-            controles.vendedor_id, 'Solo mis ventas')
-        ),
+        campoCasilla('Solo mis ventas', controles.vendedor_id),
         campo('Origen', controles.tenencia),
         campo('Desde', controles.desde),
         campo('Hasta', controles.hasta),

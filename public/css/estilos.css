@@ -212,6 +212,18 @@ input, select, textarea {
   width: 100%;
   min-width: 0;
 }
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--primario);
+  inline-size: 1rem;
+  block-size: 1rem;
+  cursor: pointer;
+}
+
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--primario);
@@ -341,7 +353,32 @@ td.acciones { text-align: right; white-space: nowrap; }
 .permuta__cabecera { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .permuta__cabecera .derecha { margin-left: auto; }
 
+.casilla {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .5rem .7rem;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-chico);
+  background: var(--superficie);
+  font-size: .875rem;
+  font-weight: 550;
+  color: var(--texto);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background .12s, border-color .12s;
+}
+.casilla:hover { background: var(--superficie-2); }
+.casilla:has(input:checked) {
+  background: var(--primario-suave);
+  border-color: var(--primario);
+  color: var(--primario-oscuro);
+}
+.casilla:focus-within { border-color: var(--primario); box-shadow: 0 0 0 3px var(--primario-suave); }
+
 .filtros { display: flex; flex-wrap: wrap; gap: .625rem; align-items: flex-end; }
+.filtros .casilla { align-self: flex-end; }
 .filtros .campo { flex: 1 1 150px; }
 .filtros .campo--busqueda { flex: 2 1 240px; }
 

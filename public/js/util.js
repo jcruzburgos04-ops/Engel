@@ -260,6 +260,12 @@ export function campoAncho(etiqueta, control, ayuda) {
   return c;
 }
 
+// Casilla de tildar con su texto al lado, alineada con el resto de los
+// filtros. Se usa en vez de armarla a mano con estilos sueltos.
+export function campoCasilla(etiqueta, control) {
+  return h('label', { class: 'casilla' }, control, h('span', {}, etiqueta));
+}
+
 export function opciones(select, lista, seleccionado) {
   for (const { valor, texto } of lista) {
     select.append(h('option', { value: valor, selected: String(valor) === String(seleccionado) }, texto));
