@@ -1,6 +1,10 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 const db = require('../db');
+const config = require('../config');
 
 // Cada cambio queda registrado con el antes y el despues. Es la red de
 // seguridad: aunque alguien pise un dato, el valor anterior sigue estando.
@@ -18,6 +22,29 @@ const subirVersion = db.prepare(
    WHERE id = 1`
 );
 
+// Ningun campo puede quedar en NULL: el historial no se puede caer por un
+// dato incompleto, porque es justamente la red de seguridad de todo lo demas.
+function texto(valor, porDefecto = '') {
+  if (valor === undefined || valor === null) return porDefecto;
+  return String(valor);
+}
+
+function entero(valor) {
+  const numero = Number(valor);
+  return Number.isInteger(numero) ? numero : null;
+}
+
+// Si por lo que sea no se puede escribir en la base, la linea se guarda igual
+// en un archivo aparte. Preferible un registro suelto que perder el dato.
+function registrarEnArchivo(entrada, motivo) {
+  try {
+    const destino = path.join(path.dirname(config.dbPath), 'historial-de-emergencia.log');
+    fs.appendFileSync(destino, `${JSON.stringify({ ...entrada, motivo, fecha: new Date().toISOString() })}\n`);
+  } catch (error) {
+    console.error('[engel] tampoco se pudo guardar el historial en archivo:', error.message);
+  }
+}
+
 function aTexto(valor) {
   if (valor === undefined || valor === null) return null;
   try {
@@ -32,22 +59,25 @@ function aTexto(valor) {
  * Nunca tira error: registrar el historial no puede hacer fallar una carga.
  */
 function registrar({ entidad, entidadId = null, ventaId = null, accion, resumen = '', antes, despues, usuario, origen = '' }) {
+  const entrada = {
+    entidad: texto(entidad, 'desconocido'),
+    entidad_id: entero(entidadId),
+    venta_id: entero(ventaId),
+    accion: texto(accion, 'editar'),
+    resumen: texto(resumen).slice(0, 500),
+    antes: aTexto(antes),
+    despues: aTexto(despues),
+    usuario_id: usuario ? entero(usuario.id) : null,
+    usuario_nombre: texto(usuario && usuario.nombre, 'Sistema').slice(0, 120),
+    origen: texto(origen).slice(0, 120)
+  };
+
   try {
-    insertar.run({
-      entidad,
-      entidad_id: entidadId,
-      venta_id: ventaId,
-      accion,
-      resumen: String(resumen).slice(0, 500),
-      antes: aTexto(antes),
-      despues: aTexto(despues),
-      usuario_id: usuario ? usuario.id : null,
-      usuario_nombre: usuario ? usuario.nombre : '',
-      origen: String(origen || '').slice(0, 120)
-    });
+    insertar.run(entrada);
     subirVersion.run();
   } catch (error) {
     console.error('[engel] no se pudo registrar el historial:', error.message);
+    registrarEnArchivo(entrada, error.message);
   }
 }
 

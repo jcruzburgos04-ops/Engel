@@ -367,3 +367,85 @@ test('pero cada venta sigue diciendo quien la vendio', async () => {
   const { cuerpo } = await pedir(`/api/ventas/${ventaId}`);
   assert.ok(cuerpo.venta.vendedor_nombre, 'la venta dice quien vendio');
 });
+
+// ---------- El historial no se puede caer ----------
+
+test('crear una venta siempre queda registrado en el historial', async () => {
+  const creada = await pedir('/api/ventas', {
+    method: 'POST',
+    body: {
+      fecha_venta: '2026-09-11',
+      vendedor_id: 1,
+      cliente_nombre: 'Queda En El Historial',
+      vehiculo: { dominio: 'HH111HH', marca: 'Renault' }
+    }
+  });
+  assert.equal(creada.status, 201);
+
+  const { cuerpo } = await pedir(`/api/ventas/${creada.cuerpo.venta.id}/historial`);
+  const creacion = cuerpo.historial.find((l) => l.accion === 'crear' && l.entidad === 'venta');
+  assert.ok(creacion, 'la creacion aparece en el historial');
+  assert.match(creacion.resumen, /HH111HH/);
+  assert.ok(creacion.usuario_nombre, 'siempre dice quien lo hizo');
+});
+
+test('el historial no se cae aunque falten datos del usuario', () => {
+  const db = require('../src/db');
+  const auditoria = require('../src/lib/auditoria');
+  const antes = db.prepare('SELECT COUNT(*) AS n FROM auditoria').get().n;
+
+  // Un usuario sin nombre no puede hacer que se pierda el registro.
+  auditoria.registrar({ entidad: 'prueba', accion: 'editar', resumen: 'sin usuario' });
+  auditoria.registrar({ entidad: 'prueba', accion: 'editar', resumen: 'usuario a medias', usuario: { id: 1 } });
+
+  const despues = db.prepare('SELECT COUNT(*) AS n FROM auditoria').get().n;
+  assert.equal(despues, antes + 2, 'se guardaron las dos lineas igual');
+
+  const ultima = db.prepare('SELECT usuario_nombre FROM auditoria ORDER BY id DESC LIMIT 1').get();
+  assert.ok(ultima.usuario_nombre, 'el nombre nunca queda vacio en la base');
+});
+
+test('cada accion sobre la venta suma una linea al historial', async () => {
+  const creada = await pedir('/api/ventas', {
+    method: 'POST',
+    body: {
+      fecha_venta: '2026-09-12',
+      vendedor_id: 1,
+      cliente_nombre: 'Seguimiento',
+      vehiculo: { dominio: 'KK222KK', marca: 'Honda' }
+    }
+  });
+  const id = creada.cuerpo.venta.id;
+
+  const contar = async () => (await pedir(`/api/ventas/${id}/historial`)).cuerpo.historial.length;
+  let esperado = await contar();
+
+  await pedir(`/api/ventas/${id}`, { method: 'PATCH', body: { cliente_telefono: '11 3333 3333' } });
+  assert.equal(await contar(), ++esperado, 'editar un campo se registra');
+
+  await pedir(`/api/ventas/${id}`, { method: 'PATCH', body: { vehiculo: { color: 'Verde' } } });
+  assert.equal(await contar(), ++esperado, 'editar el auto se registra');
+
+  await pedir(`/api/ventas/${id}/notas`, { method: 'POST', body: { texto: 'Una nota' } });
+  assert.equal(await contar(), ++esperado, 'agregar una nota se registra');
+
+  await pedir(`/api/ventas/${id}/permutas`, {
+    method: 'POST',
+    body: { dominio: 'LL333LL', marca: 'Chevrolet', valor_tomado: 1000000 }
+  });
+  assert.equal(await contar(), ++esperado, 'vincular una permuta se registra');
+
+  const detalle = await pedir(`/api/ventas/${id}`);
+  const documento = detalle.cuerpo.venta.documentacion[0].items[0];
+  await pedir(`/api/documentos/${documento.id}`, { method: 'PATCH', body: { estado: 'ok' } });
+  assert.equal(await contar(), ++esperado, 'cambiar un documento se registra');
+});
+
+test('un cambio que no cambia nada no ensucia el historial', async () => {
+  const { cuerpo: antes } = await pedir(`/api/ventas/${ventaId}/historial`);
+  await pedir(`/api/ventas/${ventaId}`, { method: 'PATCH', body: { forma_pago: 'Transferencia' } });
+  await pedir(`/api/ventas/${ventaId}`, { method: 'PATCH', body: { forma_pago: 'Transferencia' } });
+  const { cuerpo: despues } = await pedir(`/api/ventas/${ventaId}/historial`);
+
+  assert.equal(despues.historial.length, antes.historial.length, 'guardar lo mismo no agrega lineas');
+});

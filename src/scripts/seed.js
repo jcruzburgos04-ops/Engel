@@ -29,7 +29,11 @@ function diasDesdeHoy(dias) {
   return fecha.toISOString().slice(0, 10);
 }
 
-const admin = { id: crearUsuario('Administrador', 'admin@engel.com', 'admin'), rol: 'admin' };
+const admin = {
+  id: crearUsuario('Administrador', 'admin@engel.com', 'admin'),
+  nombre: 'Administrador',
+  rol: 'admin'
+};
 const lucia = crearUsuario('Lucia Fernandez', 'lucia@engel.com', 'vendedor');
 const martin = crearUsuario('Martin Alvarez', 'martin@engel.com', 'vendedor');
 
