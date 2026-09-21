@@ -29,6 +29,7 @@ psql -h "$HOST" -p "$PUERTO" -U "$USUARIO" -d "$BASE" -v ON_ERROR_STOP=1 -q -f "
 psql -h "$HOST" -p "$PUERTO" -U "$USUARIO" -d "$BASE" -v ON_ERROR_STOP=1 -q -f "$AQUI/seguridad.sql"
 
 node "$AQUI/../../herramientas/armar-migracion.js" --verificar
+node "$AQUI/../../herramientas/armar-instalacion.js" --verificar
 
 echo ""
 echo "Todas las pruebas del esquema pasaron."

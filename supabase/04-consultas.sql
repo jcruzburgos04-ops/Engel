@@ -293,6 +293,38 @@ AS $$
 $$;
 
 -- ---------------------------------------------------------------------
+-- Sugerencias mientras se escribe el dominio
+-- ---------------------------------------------------------------------
+-- El buscador las pide en cada tecla: devuelve los autos cuyo dominio
+-- contiene lo que se escribio, primero los que empiezan igual.
+
+CREATE OR REPLACE FUNCTION public.sugerir_dominios(p_q text, p_limite integer DEFAULT 8)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  SELECT COALESCE(jsonb_agg(fila ORDER BY empieza, dominio), '[]'::jsonb)
+  FROM (
+    SELECT
+      v.dominio,
+      CASE WHEN v.dominio LIKE public.normalizar_dominio(p_q) || '%' THEN 0 ELSE 1 END AS empieza,
+      jsonb_build_object(
+        'dominio', v.dominio,
+        'descripcion', NULLIF(btrim(concat_ws(' ', v.marca, v.modelo)), ''),
+        'anio', v.anio,
+        'tenencia', v.tenencia,
+        'documentos', (SELECT count(*) FROM public.documentos d WHERE d.vehiculo_id = v.id),
+        'aprobados', (SELECT count(*) FROM public.documentos d
+                       WHERE d.vehiculo_id = v.id AND d.estado = 'aprobado')
+      ) AS fila
+    FROM public.vehiculos v
+    WHERE public.normalizar_dominio(p_q) <> ''
+      AND v.dominio LIKE '%' || public.normalizar_dominio(p_q) || '%'
+    ORDER BY empieza, v.dominio
+    LIMIT LEAST(GREATEST(COALESCE(p_limite, 8), 1), 25)
+  ) AS s;
+$$;
+
+-- ---------------------------------------------------------------------
 -- Panel de documentacion pendiente
 -- ---------------------------------------------------------------------
 
@@ -420,7 +452,8 @@ BEGIN
     'crear_venta(jsonb)', 'actualizar_venta(bigint, jsonb)',
     'agregar_permuta(bigint, jsonb)', 'quitar_permuta(bigint)', 'borrar_venta(bigint)',
     'venta_completa(bigint)', 'listar_ventas(jsonb)', 'listar_ventas_completo(jsonb)',
-    'buscar_dominio(text)', 'panel_documentacion(boolean, text)', 'estadisticas()',
+    'buscar_dominio(text)', 'sugerir_dominios(text, integer)',
+    'panel_documentacion(boolean, text)', 'estadisticas()',
     'historial_venta(bigint)', 'exportar_todo()', 'documentacion_de_venta(bigint)',
     'guardar_vehiculo(jsonb)', 'actualizar_vehiculo(bigint, jsonb)',
     'generar_checklist(bigint, bigint, text)', 'normalizar_dominio(text)', 'dominio_valido(text)',

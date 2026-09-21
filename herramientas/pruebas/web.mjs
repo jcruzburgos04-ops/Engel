@@ -158,6 +158,27 @@ await p.click('.modal__cerrar');
 console.log('7. Buscar por dominio y bajar el ZIP');
 await p.click('a[href="#/buscador"]');
 await p.waitForSelector('input.dominio-input');
+
+// Mientras se escribe tienen que aparecer los dominios que coinciden.
+await p.click('input.dominio-input');
+await p.type('input.dominio-input', 'ab', { delay: 60 });
+await p.waitForSelector('.sugerencia', { timeout: 10000 });
+const sugeridas = await p.locator('.sugerencia').allInnerTexts();
+ok(sugeridas.some((t) => /AB 123 CD/.test(t)), `sugiere el dominio mientras se escribe (${sugeridas.length})`);
+ok(sugeridas.some((t) => /Toyota|Corolla/i.test(t)), 'la sugerencia dice que auto es');
+await captura(p, '25-sugerencias');
+
+// Al elegir una sugerencia se busca sola, sin apretar Buscar.
+await p.click('.sugerencia');
+await p.waitForSelector('.tarjeta__titulo', { timeout: 10000 });
+ok((await p.inputValue('input.dominio-input')) === 'AB123CD', 'al elegirla completa el dominio y busca');
+
+// Un dominio que no existe no sugiere nada.
+await p.fill('input.dominio-input', '');
+await p.type('input.dominio-input', 'zz9', { delay: 60 });
+await p.waitForTimeout(900);
+ok((await p.locator('.sugerencia').count()) === 0, 'no sugiere dominios que no existen');
+
 await p.fill('input.dominio-input', 'ab123cd');
 await p.click('button:has-text("Buscar")');
 await p.waitForSelector('.tarjeta__titulo', { timeout: 10000 });
@@ -281,7 +302,13 @@ const psql = (sql) =>
     { stdio: 'pipe' }
   );
 
-psql("CREATE OR REPLACE FUNCTION public.version_esquema() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 1'");
+// La version que pide la web sube con cada cambio del esquema: se lee de ahi
+// para que la prueba no haya que retocarla cada vez.
+const versionWeb = await p.evaluate(async () => (await import('/js/api.js')).VERSION_ESQUEMA);
+const ponerVersion = (n) =>
+  psql(`CREATE OR REPLACE FUNCTION public.version_esquema() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT ${n}'`);
+
+ponerVersion(versionWeb - 1);
 await p.goto(BASE, { waitUntil: 'networkidle' });
 await p.waitForSelector('.barra-version', { timeout: 15000 }).catch(() => {});
 const avisoVersion = await p.locator('.barra-version').innerText().catch(() => '');
@@ -289,7 +316,7 @@ ok(/desactualizada/i.test(avisoVersion), 'avisa que la base quedo atras');
 ok(/actualizar\.sql/i.test(avisoVersion), 'dice que archivo hay que correr');
 await captura(p, '27-base-vieja');
 
-psql("CREATE OR REPLACE FUNCTION public.version_esquema() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 2'");
+ponerVersion(versionWeb);
 await p.goto(BASE, { waitUntil: 'networkidle' });
 await p.waitForSelector('.menu', { timeout: 15000 });
 ok((await p.locator('.barra-version').count()) === 0, 'con la base al dia no molesta con avisos');

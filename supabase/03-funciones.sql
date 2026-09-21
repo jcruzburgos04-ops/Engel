@@ -52,9 +52,10 @@ $$;
 -- dejar que salten errores sueltos al usar el sistema.
 --   1 = primera instalacion
 --   2 = patentes de moto, sin chasis/motor, estados nuevos de documentacion
+--   3 = sugerencias de dominio mientras se escribe en el buscador
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 2 $$;
+AS $$ SELECT 3 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()

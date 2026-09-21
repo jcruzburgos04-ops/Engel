@@ -59,7 +59,7 @@ Al terminar, abajo en **Results** aparece una tabla con el resultado:
 | control | estado | detalle |
 | --- | --- | --- |
 | Tablas de datos | OK | 11 de 11 |
-| Funciones del sistema | OK | 9 de 9 |
+| Funciones del sistema | OK | 10 de 10 |
 | Reglas de acceso a los datos | OK | 29 reglas |
 | Deposito de documentacion | OK | creado |
 | Reglas de acceso a los archivos | OK | 4 de 4 |

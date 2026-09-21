@@ -91,7 +91,7 @@ async function perfilDe(usuario) {
 // sola (Netlify) pero el SQL se corre a mano, asi que pueden quedar
 // desfasadas: si la base es mas vieja, conviene decirlo con todas las letras
 // en vez de dejar que Postgres tire un error que nadie entiende.
-export const VERSION_ESQUEMA = 2;
+export const VERSION_ESQUEMA = 3;
 
 // Devuelve la version del esquema instalado, o null si no se pudo averiguar.
 // Una base vieja no tiene la funcion version_esquema(): eso cuenta como 1.
@@ -433,6 +433,20 @@ export const api = {
       throw new ErrorApi(`No hay ningun auto cargado con el dominio ${normalizar(dominio)}.`, 'P0002');
     }
     return resultado;
+  },
+
+  // Sugerencias del buscador: se piden mientras se escribe, asi que si algo
+  // falla (sin internet, base vieja) no se muestra ningun error: simplemente
+  // no aparece la lista y el boton Buscar sigue funcionando igual.
+  async sugerirDominios(texto, limite = 8) {
+    const q = normalizar(texto);
+    if (!q) return [];
+    try {
+      const filas = await rpc('sugerir_dominios', { p_q: q, p_limite: limite });
+      return Array.isArray(filas) ? filas : [];
+    } catch {
+      return [];
+    }
   },
 
   async estadisticas() {

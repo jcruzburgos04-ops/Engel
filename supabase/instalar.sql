@@ -617,9 +617,10 @@ $$;
 -- dejar que salten errores sueltos al usar el sistema.
 --   1 = primera instalacion
 --   2 = patentes de moto, sin chasis/motor, estados nuevos de documentacion
+--   3 = sugerencias de dominio mientras se escribe en el buscador
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 2 $$;
+AS $$ SELECT 3 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -1311,6 +1312,38 @@ AS $$
 $$;
 
 -- ---------------------------------------------------------------------
+-- Sugerencias mientras se escribe el dominio
+-- ---------------------------------------------------------------------
+-- El buscador las pide en cada tecla: devuelve los autos cuyo dominio
+-- contiene lo que se escribio, primero los que empiezan igual.
+
+CREATE OR REPLACE FUNCTION public.sugerir_dominios(p_q text, p_limite integer DEFAULT 8)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  SELECT COALESCE(jsonb_agg(fila ORDER BY empieza, dominio), '[]'::jsonb)
+  FROM (
+    SELECT
+      v.dominio,
+      CASE WHEN v.dominio LIKE public.normalizar_dominio(p_q) || '%' THEN 0 ELSE 1 END AS empieza,
+      jsonb_build_object(
+        'dominio', v.dominio,
+        'descripcion', NULLIF(btrim(concat_ws(' ', v.marca, v.modelo)), ''),
+        'anio', v.anio,
+        'tenencia', v.tenencia,
+        'documentos', (SELECT count(*) FROM public.documentos d WHERE d.vehiculo_id = v.id),
+        'aprobados', (SELECT count(*) FROM public.documentos d
+                       WHERE d.vehiculo_id = v.id AND d.estado = 'aprobado')
+      ) AS fila
+    FROM public.vehiculos v
+    WHERE public.normalizar_dominio(p_q) <> ''
+      AND v.dominio LIKE '%' || public.normalizar_dominio(p_q) || '%'
+    ORDER BY empieza, v.dominio
+    LIMIT LEAST(GREATEST(COALESCE(p_limite, 8), 1), 25)
+  ) AS s;
+$$;
+
+-- ---------------------------------------------------------------------
 -- Panel de documentacion pendiente
 -- ---------------------------------------------------------------------
 
@@ -1438,7 +1471,8 @@ BEGIN
     'crear_venta(jsonb)', 'actualizar_venta(bigint, jsonb)',
     'agregar_permuta(bigint, jsonb)', 'quitar_permuta(bigint)', 'borrar_venta(bigint)',
     'venta_completa(bigint)', 'listar_ventas(jsonb)', 'listar_ventas_completo(jsonb)',
-    'buscar_dominio(text)', 'panel_documentacion(boolean, text)', 'estadisticas()',
+    'buscar_dominio(text)', 'sugerir_dominios(text, integer)',
+    'panel_documentacion(boolean, text)', 'estadisticas()',
     'historial_venta(bigint)', 'exportar_todo()', 'documentacion_de_venta(bigint)',
     'guardar_vehiculo(jsonb)', 'actualizar_vehiculo(bigint, jsonb)',
     'generar_checklist(bigint, bigint, text)', 'normalizar_dominio(text)', 'dominio_valido(text)',
@@ -1559,7 +1593,7 @@ WITH controles AS (
       WHERE n.nspname = 'public'
         AND p.proname IN ('crear_venta','actualizar_venta','venta_completa','listar_ventas',
                           'buscar_dominio','panel_documentacion','estadisticas','es_miembro',
-                          'version_esquema')) AS funciones,
+                          'version_esquema','sugerir_dominios')) AS funciones,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'public') AS reglas,
     (SELECT count(*) FROM storage.buckets WHERE id = 'documentacion') AS deposito,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'storage'
@@ -1573,8 +1607,8 @@ filas AS (
   FROM controles
   UNION ALL
   SELECT 2, 'Funciones del sistema',
-         CASE WHEN funciones = 9 THEN 'OK' ELSE 'FALTA' END,
-         funciones || ' de 9'
+         CASE WHEN funciones = 10 THEN 'OK' ELSE 'FALTA' END,
+         funciones || ' de 10'
   FROM controles
   UNION ALL
   SELECT 3, 'Reglas de acceso a los datos',
@@ -1598,14 +1632,14 @@ filas AS (
   UNION ALL
   SELECT 6,
          '>>> RESULTADO',
-         CASE WHEN tablas = 11 AND funciones = 9 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 11 AND funciones = 10 AND deposito = 1 AND reglas_archivos = 4
               THEN 'TODO LISTO'
-              WHEN tablas = 11 AND funciones = 9 AND deposito = 1
+              WHEN tablas = 11 AND funciones = 10 AND deposito = 1
               THEN 'CASI'
               ELSE 'REVISAR' END,
-         CASE WHEN tablas = 11 AND funciones = 9 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 11 AND funciones = 10 AND deposito = 1 AND reglas_archivos = 4
               THEN 'Ya podes conectar la web. Seguí con el paso 3 del README.'
-              WHEN tablas = 11 AND funciones = 9 AND deposito = 1
+              WHEN tablas = 11 AND funciones = 10 AND deposito = 1
               THEN 'Falta solo lo de la fila 5. Todo lo demas quedo instalado.'
               ELSE 'Algo no se creo: volve a pegar el archivo completo y correlo de nuevo.' END
   FROM controles

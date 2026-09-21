@@ -429,6 +429,39 @@ td.acciones { text-align: right; white-space: nowrap; }
 .aviso--ok { background: var(--ok-suave); color: var(--ok); border-color: #c6e8d9; }
 .aviso--info { background: var(--primario-suave); color: var(--primario-oscuro); border-color: #cfdbfb; }
 
+/* Sugerencias de dominio mientras se escribe en el buscador. */
+.sugeridor { position: relative; flex: 1; min-width: 0; }
+.sugeridor > input { width: 100%; }
+
+.sugerencias {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + .25rem);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-chico);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .12);
+  overflow: hidden;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+.sugerencias[hidden] { display: none; }
+
+.sugerencia {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .5rem .7rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--borde-suave);
+}
+.sugerencia:last-child { border-bottom: 0; }
+.sugerencia--activa { background: var(--primario-suave); }
+.sugerencia__texto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sugerencia__papeles { color: var(--texto-suave); font-size: .8rem; white-space: nowrap; }
+
 /* Aviso de base desactualizada: ocupa todo el ancho, arriba de todo. */
 .barra-version {
   margin: 0;

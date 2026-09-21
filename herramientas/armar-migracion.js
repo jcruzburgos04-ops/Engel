@@ -28,6 +28,7 @@ const FUNCIONES = [
   ['03-funciones.sql', 'guardar_vehiculo'],
   ['03-funciones.sql', 'actualizar_vehiculo'],
   ['04-consultas.sql', 'documentacion_de_venta'],
+  ['04-consultas.sql', 'sugerir_dominios'],
   ['04-consultas.sql', 'venta_completa'],
   ['04-consultas.sql', 'listar_ventas'],
   ['04-consultas.sql', 'panel_documentacion'],
@@ -39,11 +40,12 @@ const salida = `-- =============================================================
 -- =====================================================================
 -- Copiar TODO este archivo, pegarlo en el editor SQL de Supabase y RUN.
 --
--- Trae tres cambios:
+-- Trae estos cambios:
 --   1. Acepta las patentes de moto anteriores a 2016 (590LLL).
 --   2. Saca el numero de chasis y el numero de motor.
 --   3. Los estados de la documentacion pasan a ser:
 --      Faltante -> Pedido -> En proceso -> Aprobado.
+--   4. El buscador sugiere dominios mientras se escribe.
 --
 -- Se puede correr aunque ya hayas aplicado alguno: no repite nada.
 -- Al final aparece una tabla con el resultado.
@@ -123,6 +125,8 @@ BEGIN
 END
 $migracion$;
 
+REVOKE ALL ON FUNCTION public.sugerir_dominios(text, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.sugerir_dominios(text, integer) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
 
 NOTIFY pgrst, 'reload schema';
@@ -153,10 +157,15 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 2 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 3 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
-  SELECT 5, 'Tus datos',
+  SELECT 5, 'Sugerencias del buscador',
+         CASE WHEN to_regprocedure('public.sugerir_dominios(text, integer)') IS NOT NULL
+              THEN 'OK' ELSE 'FALTA' END,
+         'el buscador completa solo mientras escribis'
+  UNION ALL
+  SELECT 6, 'Tus datos',
          'INFO',
          (SELECT count(*) FROM public.ventas) || ' venta(s) · '
          || (SELECT count(*) FROM public.vehiculos) || ' auto(s) · '

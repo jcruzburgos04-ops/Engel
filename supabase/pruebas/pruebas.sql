@@ -307,6 +307,30 @@ SELECT verificar('un dominio que no existe devuelve vacio',
   (SELECT public.buscar_dominio('ZZ999ZZ') IS NULL));
 
 \echo ''
+\echo '== Sugerencias mientras se escribe el dominio =='
+
+SELECT verificar('sugiere los dominios que empiezan con lo escrito',
+  (SELECT public.sugerir_dominios('AB') -> 0 ->> 'dominio' = 'AB123CD'));
+
+SELECT verificar('tambien sugiere por el medio del dominio',
+  (SELECT count(*) = 1 FROM jsonb_array_elements(public.sugerir_dominios('123')) f
+    WHERE f ->> 'dominio' = 'AB123CD'));
+
+SELECT verificar('la sugerencia trae marca, modelo y papeles',
+  (SELECT (f ->> 'descripcion') <> '' AND (f ->> 'documentos')::int = 8
+     FROM jsonb_array_elements(public.sugerir_dominios('AB123CD')) f LIMIT 1));
+
+SELECT verificar('sin texto no sugiere nada',
+  (SELECT public.sugerir_dominios('') = '[]'::jsonb
+      AND public.sugerir_dominios('  ') = '[]'::jsonb));
+
+SELECT verificar('un dominio que no existe no sugiere nada',
+  (SELECT public.sugerir_dominios('ZZ999') = '[]'::jsonb));
+
+SELECT verificar('no devuelve mas sugerencias que el limite pedido',
+  (SELECT jsonb_array_length(public.sugerir_dominios('A', 1)) <= 1));
+
+\echo ''
 \echo '== Panel de documentacion y numeros =='
 
 SELECT verificar('el panel muestra los autos con papeles pendientes',

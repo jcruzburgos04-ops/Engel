@@ -3,11 +3,12 @@
 -- =====================================================================
 -- Copiar TODO este archivo, pegarlo en el editor SQL de Supabase y RUN.
 --
--- Trae tres cambios:
+-- Trae estos cambios:
 --   1. Acepta las patentes de moto anteriores a 2016 (590LLL).
 --   2. Saca el numero de chasis y el numero de motor.
 --   3. Los estados de la documentacion pasan a ser:
 --      Faltante -> Pedido -> En proceso -> Aprobado.
+--   4. El buscador sugiere dominios mientras se escribe.
 --
 -- Se puede correr aunque ya hayas aplicado alguno: no repite nada.
 -- Al final aparece una tabla con el resultado.
@@ -24,7 +25,7 @@
 
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 2 $$;
+AS $$ SELECT 3 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -352,6 +353,32 @@ AS $$
   ) AS grupos;
 $$;
 
+CREATE OR REPLACE FUNCTION public.sugerir_dominios(p_q text, p_limite integer DEFAULT 8)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  SELECT COALESCE(jsonb_agg(fila ORDER BY empieza, dominio), '[]'::jsonb)
+  FROM (
+    SELECT
+      v.dominio,
+      CASE WHEN v.dominio LIKE public.normalizar_dominio(p_q) || '%' THEN 0 ELSE 1 END AS empieza,
+      jsonb_build_object(
+        'dominio', v.dominio,
+        'descripcion', NULLIF(btrim(concat_ws(' ', v.marca, v.modelo)), ''),
+        'anio', v.anio,
+        'tenencia', v.tenencia,
+        'documentos', (SELECT count(*) FROM public.documentos d WHERE d.vehiculo_id = v.id),
+        'aprobados', (SELECT count(*) FROM public.documentos d
+                       WHERE d.vehiculo_id = v.id AND d.estado = 'aprobado')
+      ) AS fila
+    FROM public.vehiculos v
+    WHERE public.normalizar_dominio(p_q) <> ''
+      AND v.dominio LIKE '%' || public.normalizar_dominio(p_q) || '%'
+    ORDER BY empieza, v.dominio
+    LIMIT LEAST(GREATEST(COALESCE(p_limite, 8), 1), 25)
+  ) AS s;
+$$;
+
 CREATE OR REPLACE FUNCTION public.venta_completa(p_id bigint)
 RETURNS jsonb
 LANGUAGE sql STABLE
@@ -625,6 +652,8 @@ BEGIN
 END
 $migracion$;
 
+REVOKE ALL ON FUNCTION public.sugerir_dominios(text, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.sugerir_dominios(text, integer) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
 
 NOTIFY pgrst, 'reload schema';
@@ -655,10 +684,15 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 2 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 3 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
-  SELECT 5, 'Tus datos',
+  SELECT 5, 'Sugerencias del buscador',
+         CASE WHEN to_regprocedure('public.sugerir_dominios(text, integer)') IS NOT NULL
+              THEN 'OK' ELSE 'FALTA' END,
+         'el buscador completa solo mientras escribis'
+  UNION ALL
+  SELECT 6, 'Tus datos',
          'INFO',
          (SELECT count(*) FROM public.ventas) || ' venta(s) · '
          || (SELECT count(*) FROM public.vehiculos) || ' auto(s) · '
