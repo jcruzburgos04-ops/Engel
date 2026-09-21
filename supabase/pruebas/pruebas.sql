@@ -221,8 +221,14 @@ SELECT verificar('el contador de cambios avanza',
 \echo ''
 \echo '== Documentacion =='
 
-UPDATE public.documentos SET estado = 'ok'
+UPDATE public.documentos SET estado = 'aprobado'
 WHERE venta_id = :venta_id AND rol = 'venta' AND tipo = 'titulo';
+
+UPDATE public.documentos SET estado = 'pedido'
+WHERE venta_id = :venta_id AND rol = 'venta' AND tipo = 'patentes';
+
+UPDATE public.documentos SET estado = 'en_proceso'
+WHERE venta_id = :venta_id AND rol = 'venta' AND tipo = 'vtv';
 
 INSERT INTO public.archivos (documento_id, nombre_original, ruta, mime, tamano, subido_por)
 SELECT id, 'titulo.pdf', 'ventas/1/titulo.pdf', 'application/pdf', 1024,
@@ -243,8 +249,19 @@ SELECT verificar('cada auto trae sus 8 documentos en orden',
 SELECT verificar('el archivo aparece colgado de su documento',
   (SELECT public.documentacion_de_venta(:venta_id) -> 0 -> 'items' -> 0 -> 'archivos' -> 0 ->> 'nombre_original' = 'titulo.pdf'));
 
-SELECT verificar('cuenta cuantos documentos estan listos',
+SELECT verificar('solo los aprobados cuentan como listos',
   (SELECT (public.documentacion_de_venta(:venta_id) -> 0 ->> 'listos')::int = 1));
+
+SELECT verificar('los documentos arrancan en Faltante',
+  (SELECT count(*) = 5 FROM public.documentos
+    WHERE venta_id = :venta_id AND rol = 'venta' AND estado = 'faltante'));
+
+SELECT verificar('acepta los cuatro estados nuevos',
+  (SELECT count(DISTINCT estado) = 4 FROM public.documentos WHERE venta_id = :venta_id));
+
+SELECT debe_fallar('rechaza los estados viejos',
+  format($$ UPDATE public.documentos SET estado = 'pendiente' WHERE venta_id = %s $$, :venta_id),
+  'documentos_estado_check');
 
 \echo ''
 \echo '== Ficha completa y listado =='
@@ -308,6 +325,10 @@ SELECT verificar('las estadisticas no traen totales por vendedor',
 SELECT verificar('las estadisticas traen los numeros generales',
   (SELECT (public.estadisticas() ->> 'ventas_totales')::int = 2
       AND (public.estadisticas() ->> 'documentos_pendientes')::int = 23));
+
+SELECT verificar('el panel trae los contadores de cada estado',
+  (SELECT (public.panel_documentacion(true, '') -> 0)
+            ?& ARRAY['listos', 'faltantes', 'pedidos', 'en_proceso']));
 
 \echo ''
 \echo '== Permutas =='

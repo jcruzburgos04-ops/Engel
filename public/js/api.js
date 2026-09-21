@@ -338,12 +338,12 @@ export const api = {
         );
       }
 
-      // Al cargar documentacion el item pasa a listo si seguia pendiente.
-      if (documento.estado === 'pendiente') {
+      // Al cargar el archivo el documento queda aprobado, si seguia faltante.
+      if (documento.estado === 'faltante') {
         revisar(
           await cliente
             .from('documentos')
-            .update({ estado: 'ok', actualizado_por: usuario.id, actualizado_en: new Date().toISOString() })
+            .update({ estado: 'aprobado', actualizado_por: usuario.id, actualizado_en: new Date().toISOString() })
             .eq('id', documentoId)
         );
       }

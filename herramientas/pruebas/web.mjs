@@ -83,7 +83,11 @@ await p.waitForSelector('form');
 await p.fill('input.dominio-input', 'AB123CD');
 await p.locator('.campo', { hasText: 'Marca' }).first().locator('input').fill('Toyota');
 await p.locator('.campo', { hasText: 'Modelo' }).first().locator('input').fill('Corolla');
-await p.locator('.campo', { hasText: 'Cliente' }).first().locator('input').fill('Maria Gomez');
+await p.locator('.campo', { hasText: 'Comprador' }).first().locator('input').fill('Maria Gomez');
+await p.locator('.campo', { hasText: 'Celular' }).first().locator('input').fill('11 5555 5555');
+
+// El precio esta en la seccion plegada de la operacion.
+await p.locator('.tarjeta', { hasText: 'Datos de la operacion' }).locator('summary').click();
 await p.locator('.campo', { hasText: 'Precio de venta' }).locator('input').fill('15000000');
 
 await p.click('button:has-text("Agregar permuta")');
@@ -112,14 +116,20 @@ const chips = await p.locator('.archivo').count();
 ok(chips >= 1, `el archivo quedo cargado (${chips} archivo)`);
 
 const estadoTitulo = await p.locator('.doc-item').first().locator('select').inputValue();
-ok(estadoTitulo === 'ok', 'al subir el archivo el documento pasa a "Listo" solo');
+ok(estadoTitulo === 'aprobado', 'al subir el archivo el documento pasa a "Aprobado" solo');
+
+const opciones = await p.locator('.doc-item').first().locator('select option').allInnerTexts();
+ok(
+  opciones.join('|') === 'Faltante|Pedido|En proceso|Aprobado',
+  `los estados son los cuatro, en orden (${opciones.join(' → ')})`
+);
 const progreso = await p.locator('.progreso__texto').first().innerText();
 ok(progreso === '1/8', `el contador de documentacion se actualiza (${progreso})`);
 await captura(p, '23-ficha-venta');
 
 // ---------------------------------------------------------------------
 console.log('5. Guardado automatico campo por campo');
-const telefono = p.locator('.autoguardado', { hasText: 'Telefono' }).locator('input');
+const telefono = p.locator('.autoguardado', { hasText: 'Celular' }).locator('input');
 await telefono.fill('11 7777 8888');
 await telefono.blur();
 await p.waitForSelector('.autoguardado__marca--ok', { timeout: 10000 });
@@ -127,7 +137,7 @@ ok(true, 'el campo avisa "Guardado"');
 
 await p.reload({ waitUntil: 'networkidle' });
 await p.waitForSelector('.autoguardado', { timeout: 15000 });
-const guardado = await p.locator('.autoguardado', { hasText: 'Telefono' }).locator('input').inputValue();
+const guardado = await p.locator('.autoguardado', { hasText: 'Celular' }).locator('input').inputValue();
 ok(guardado === '11 7777 8888', 'el valor persiste tras recargar');
 const marca = await p.locator('.autoguardado', { hasText: 'Marca' }).locator('input').inputValue();
 ok(marca === 'Toyota', 'guardar un campo no borro los datos del auto');

@@ -129,15 +129,18 @@ suyo.
 ## Como se usa
 
 1. **Cargar venta**: del auto alcanza con **dominio, marca, modelo y ano**, mas
-   si es propio o esta en consigna. Version, color y kilometraje estan en "Mas
-   datos del auto", plegado, porque casi nunca hacen falta. Despues van los
-   datos de la operacion, la fecha de entrega estimada y, si hay, las
-   permutas. Al guardar se generan solos los checklists de documentacion.
+   si es propio o esta en consigna. De la operacion, **fecha, quien vendio,
+   estado, y nombre, celular y DNI del comprador**. Lo demas (precio, sena,
+   forma de pago, entrega estimada, version, color, kilometraje) esta en las
+   secciones "Mas datos", plegadas. Al guardar se generan solos los checklists
+   de documentacion.
 2. **Editar**: en la ficha de la venta se cambia cualquier dato directamente
    sobre el campo. No hay boton de guardar: se guarda solo.
-3. **Documentacion**: desde la ficha se sube el archivo de cada documento. Al
-   subirlo, el item pasa a "Listo" automaticamente. Tambien se puede marcar a
-   mano "En tramite" o "No aplica" y dejar una observacion.
+3. **Documentacion**: cada documento pasa por cuatro estados, en este orden:
+   **Faltante → Pedido → En proceso → Aprobado**. Solo los aprobados cuentan
+   como terminados. Desde la ficha se sube el archivo de cada uno; al subirlo
+   queda aprobado automaticamente. Tambien se puede cambiar el estado a mano y
+   dejar una observacion.
 4. **Documentacion pendiente**: la solapa Documentacion muestra todos los autos
    con papeles faltantes, ordenados por la entrega mas cercana.
 5. **Buscar dominio**: se escribe la patente y aparece el auto, todas las

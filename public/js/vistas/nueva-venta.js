@@ -66,7 +66,7 @@ export async function vistaNuevaVenta() {
       'pendiente'
     ),
     cliente_nombre: h('input', { required: true, placeholder: 'Nombre y apellido', autocomplete: 'off' }),
-    cliente_documento: h('input', { placeholder: 'DNI o CUIT', autocomplete: 'off' }),
+    cliente_documento: h('input', { placeholder: '30111222', autocomplete: 'off' }),
     cliente_telefono: h('input', { placeholder: '11 5555 5555', autocomplete: 'off' }),
     cliente_email: h('input', { type: 'email', placeholder: 'cliente@email.com', autocomplete: 'off' }),
     precio_venta: h('input', { type: 'number', min: 0, step: '0.01', placeholder: '15000000' }),
@@ -197,16 +197,25 @@ export async function vistaNuevaVenta() {
           campo('Fecha de la venta', controles.fecha_venta),
           campo('Vendio', controles.vendedor_id, 'Queda registrado quien vendio el auto.'),
           campo('Estado', controles.estado),
-          campo('Cliente', controles.cliente_nombre),
-          campo('Documento del cliente', controles.cliente_documento),
-          campo('Telefono', controles.cliente_telefono),
-          campo('Email', controles.cliente_email),
-          campo('Precio de venta', controles.precio_venta),
-          campo('Moneda', controles.moneda),
-          campo('Sena', controles.sena),
-          campo('Forma de pago', controles.forma_pago),
-          campo('Fecha de entrega estimada', controles.fecha_entrega_estimada, 'Se usa para avisar las entregas proximas y vencidas.'),
-          campoAncho('Detalles extras de la operacion', controles.detalles)
+          campo('Comprador', controles.cliente_nombre),
+          campo('Celular', controles.cliente_telefono),
+          campo('DNI / CUIT', controles.cliente_documento)
+        ),
+        h(
+          'details',
+          { class: 'mas-datos' },
+          h('summary', {}, 'Mas datos de la operacion (opcional)'),
+          h(
+            'div',
+            { class: 'campos' },
+            campo('Fecha de entrega estimada', controles.fecha_entrega_estimada, 'Ordena el panel de documentacion y avisa las entregas vencidas.'),
+            campo('Precio de venta', controles.precio_venta),
+            campo('Moneda', controles.moneda),
+            campo('Sena', controles.sena),
+            campo('Forma de pago', controles.forma_pago),
+            campo('Email', controles.cliente_email),
+            campoAncho('Detalles extras de la operacion', controles.detalles)
+          )
         )
       )
     ),

@@ -143,22 +143,38 @@ export async function vistaVenta({ id }) {
           campoVenta('Estado', selectorEstado, 'estado'),
           campoVenta('Vendio', selectorVendedor, 'vendedor_id', 'Quien hizo esta venta.'),
           campoVenta('Fecha de venta', h('input', { type: 'date', value: venta.fecha_venta || '' }), 'fecha_venta'),
-          campoVenta('Cliente', h('input', { value: venta.cliente_nombre || '' }), 'cliente_nombre'),
-          campoVenta('Documento del cliente', h('input', { value: venta.cliente_documento || '' }), 'cliente_documento'),
-          campoVenta('Telefono', h('input', { value: venta.cliente_telefono || '' }), 'cliente_telefono'),
-          campoVenta('Email', h('input', { type: 'email', value: venta.cliente_email || '' }), 'cliente_email'),
-          campoVenta('Precio de venta', h('input', { type: 'number', min: 0, step: '0.01', value: venta.precio_venta ?? '' }), 'precio_venta'),
-          campoVenta('Moneda', opciones(h('select', {}), MONEDAS, venta.moneda), 'moneda'),
-          campoVenta('Sena', h('input', { type: 'number', min: 0, step: '0.01', value: venta.sena ?? '' }), 'sena'),
-          campoVenta('Forma de pago', h('input', { value: venta.forma_pago || '' }), 'forma_pago'),
-          campoVenta('Entrega estimada', h('input', { type: 'date', value: venta.fecha_entrega_estimada || '' }), 'fecha_entrega_estimada', 'Se usa para los avisos de entrega.'),
-          campoVenta('Entrega real', h('input', { type: 'date', value: venta.fecha_entrega_real || '' }), 'fecha_entrega_real'),
-          campoAutoAncho({
-            etiqueta: 'Detalles extras de la operacion',
-            control: (() => { const t = h('textarea', { rows: 3 }); t.value = venta.detalles || ''; return t; })(),
-            ventaId: id,
-            campo: 'detalles'
-          })
+          campoVenta('Comprador', h('input', { value: venta.cliente_nombre || '' }), 'cliente_nombre'),
+          campoVenta('Celular', h('input', { value: venta.cliente_telefono || '' }), 'cliente_telefono'),
+          campoVenta('DNI / CUIT', h('input', { value: venta.cliente_documento || '' }), 'cliente_documento')
+        ),
+        h(
+          'details',
+          {
+            class: 'mas-datos',
+            open: Boolean(
+              venta.cliente_email || venta.precio_venta || venta.sena ||
+              venta.forma_pago || venta.fecha_entrega_estimada || venta.fecha_entrega_real ||
+              venta.detalles
+            )
+          },
+          h('summary', {}, 'Mas datos de la operacion (opcional)'),
+          h(
+            'div',
+            { class: 'campos' },
+            campoVenta('Entrega estimada', h('input', { type: 'date', value: venta.fecha_entrega_estimada || '' }), 'fecha_entrega_estimada', 'Ordena el panel de documentacion y avisa las entregas vencidas.'),
+            campoVenta('Entrega real', h('input', { type: 'date', value: venta.fecha_entrega_real || '' }), 'fecha_entrega_real'),
+            campoVenta('Precio de venta', h('input', { type: 'number', min: 0, step: '0.01', value: venta.precio_venta ?? '' }), 'precio_venta'),
+            campoVenta('Moneda', opciones(h('select', {}), MONEDAS, venta.moneda), 'moneda'),
+            campoVenta('Sena', h('input', { type: 'number', min: 0, step: '0.01', value: venta.sena ?? '' }), 'sena'),
+            campoVenta('Forma de pago', h('input', { value: venta.forma_pago || '' }), 'forma_pago'),
+            campoVenta('Email', h('input', { type: 'email', value: venta.cliente_email || '' }), 'cliente_email'),
+            campoAutoAncho({
+              etiqueta: 'Detalles extras de la operacion',
+              control: (() => { const t = h('textarea', { rows: 3 }); t.value = venta.detalles || ''; return t; })(),
+              ventaId: id,
+              campo: 'detalles'
+            })
+          )
         )
       )
     );
@@ -278,12 +294,16 @@ export async function vistaVenta({ id }) {
       )
     );
 
-    const tituloDocs = h(
-      'h2',
-      { style: 'margin:1.5rem 0 .75rem' },
-      '📁 Documentacion de la operacion ',
-      h('span', { class: 'tenue', style: 'font-weight:400' }, `(${listosDocs}/${totalDocs})`)
-    );
+    const contadorDocs = h('span', { class: 'tenue', style: 'font-weight:400' }, `(${listosDocs}/${totalDocs})`);
+    const tituloDocs = h('h2', { style: 'margin:1.5rem 0 .75rem' }, '📁 Documentacion de la operacion ', contadorDocs);
+
+    // Cada vez que cambia un documento se recalcula el contador del titulo.
+    const actualizarContador = (documentacion) => {
+      const listos = documentacion.reduce((suma, g) => suma + g.listos, 0);
+      const total = documentacion.reduce((suma, g) => suma + g.total, 0);
+      contadorDocs.textContent = `(${listos}/${total})`;
+      refrescarPendientes();
+    };
 
     return [
       cabecera,
@@ -292,7 +312,7 @@ export async function vistaVenta({ id }) {
       auto,
       permutas,
       tituloDocs,
-      bloqueDocumentacion(venta.documentacion),
+      bloqueDocumentacion(venta.documentacion, actualizarContador),
       notas
     ].filter(Boolean);
   }

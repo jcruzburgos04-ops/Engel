@@ -44,7 +44,7 @@ AS $$
         min(v.descripcion)
       ),
       'total', count(*),
-      'listos', count(*) FILTER (WHERE d.estado IN ('ok', 'no_aplica')),
+      'listos', count(*) FILTER (WHERE d.estado = 'aprobado'),
       'items', jsonb_agg(
         jsonb_build_object(
           'id', d.id,
@@ -209,7 +209,7 @@ BEGIN
         'cantidad_permutas', (SELECT count(*) FROM public.permutas p WHERE p.venta_id = v.id),
         'documentos_total', (SELECT count(*) FROM public.documentos d WHERE d.venta_id = v.id),
         'documentos_listos', (SELECT count(*) FROM public.documentos d
-                                WHERE d.venta_id = v.id AND d.estado IN ('ok', 'no_aplica'))
+                                WHERE d.venta_id = v.id AND d.estado = 'aprobado')
       ) AS fila
     FROM pagina pg
     JOIN public.ventas v ON v.id = pg.id
@@ -314,9 +314,10 @@ AS $$
         'fecha_entrega_estimada', min(v.fecha_entrega_estimada),
         'cliente_nombre', min(v.cliente_nombre), 'vendedor_nombre', min(p.nombre),
         'total', count(*),
-        'listos', count(*) FILTER (WHERE d.estado IN ('ok', 'no_aplica')),
-        'pendientes', count(*) FILTER (WHERE d.estado = 'pendiente'),
-        'en_tramite', count(*) FILTER (WHERE d.estado = 'en_tramite'),
+        'listos', count(*) FILTER (WHERE d.estado = 'aprobado'),
+        'faltantes', count(*) FILTER (WHERE d.estado = 'faltante'),
+        'pedidos', count(*) FILTER (WHERE d.estado = 'pedido'),
+        'en_proceso', count(*) FILTER (WHERE d.estado = 'en_proceso'),
         'archivos', (SELECT count(*) FROM public.archivos a
                        JOIN public.documentos d2 ON d2.id = a.documento_id
                       WHERE d2.venta_id = d.venta_id AND d2.vehiculo_id = d.vehiculo_id)
@@ -330,7 +331,7 @@ AS $$
     JOIN public.perfiles p ON p.id = v.vendedor_id
     WHERE v.estado <> 'cancelado'
     GROUP BY d.venta_id, d.vehiculo_id
-    HAVING (NOT p_solo_pendientes OR count(*) FILTER (WHERE d.estado IN ('ok', 'no_aplica')) < count(*))
+    HAVING (NOT p_solo_pendientes OR count(*) FILTER (WHERE d.estado = 'aprobado') < count(*))
        AND (COALESCE(trim(p_q), '') = ''
             OR min(ve.dominio) LIKE '%' || public.normalizar_dominio(p_q) || '%'
             OR concat_ws(' ', min(ve.marca), min(ve.modelo), min(ve.descripcion), min(v.cliente_nombre))
@@ -356,9 +357,10 @@ AS $$
                               AND estado NOT IN ('entregado', 'cancelado')),
     'ventas_del_mes', (SELECT count(*) FROM public.ventas
                          WHERE fecha_venta >= date_trunc('month', current_date)),
+    -- Todo lo que todavia no esta aprobado cuenta como pendiente.
     'documentos_pendientes', (SELECT count(*) FROM public.documentos d
                                 JOIN public.ventas v ON v.id = d.venta_id
-                               WHERE d.estado = 'pendiente' AND v.estado <> 'cancelado'),
+                               WHERE d.estado <> 'aprobado' AND v.estado <> 'cancelado'),
     'porTenencia', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('tenencia', tenencia, 'cantidad', cantidad))
       FROM (

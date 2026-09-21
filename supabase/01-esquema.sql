@@ -118,8 +118,9 @@ CREATE TABLE IF NOT EXISTS public.documentos (
   vehiculo_id     bigint NOT NULL REFERENCES public.vehiculos (id),
   rol             text NOT NULL DEFAULT 'venta' CHECK (rol IN ('venta', 'permuta')),
   tipo            text NOT NULL,
-  estado          text NOT NULL DEFAULT 'pendiente'
-                  CHECK (estado IN ('pendiente', 'en_tramite', 'ok', 'no_aplica')),
+  -- Orden de trabajo: faltante -> pedido -> en proceso -> aprobado.
+  estado          text NOT NULL DEFAULT 'faltante'
+                  CHECK (estado IN ('faltante', 'pedido', 'en_proceso', 'aprobado')),
   observaciones   text NOT NULL DEFAULT '',
   actualizado_en  timestamptz NOT NULL DEFAULT now(),
   actualizado_por uuid REFERENCES public.perfiles (id),

@@ -148,12 +148,12 @@ export async function descargarDocumentacionCsv() {
   descargarCsv(
     `documentacion-engel-${new Date().toISOString().slice(0, 10)}.csv`,
     ['Venta', 'Dominio', 'Rol', 'Vehiculo', 'Cliente', 'Vendio', 'Entrega estimada',
-     'Listos', 'Total', 'Pendientes', 'En tramite', 'Archivos'],
+     'Aprobados', 'Total', 'Faltantes', 'Pedidos', 'En proceso', 'Archivos'],
     filas.map((f) => [
       f.venta_id, f.dominio, f.rol === 'permuta' ? 'Permuta' : 'Venta',
       [f.marca, f.modelo, f.anio].filter(Boolean).join(' '),
       f.cliente_nombre, f.vendedor_nombre, f.fecha_entrega_estimada || '',
-      f.listos, f.total, f.pendientes, f.en_tramite, f.archivos
+      f.listos, f.total, f.faltantes, f.pedidos, f.en_proceso, f.archivos
     ])
   );
 }

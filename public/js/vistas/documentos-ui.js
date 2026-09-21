@@ -126,7 +126,7 @@ function filaDocumento(item, alActualizar) {
     entrada.value = '';
   });
 
-  const indicador = { pendiente: '⬜', en_tramite: '🟡', ok: '✅', no_aplica: '➖' }[item.estado] || '⬜';
+  const indicador = (ESTADOS_DOCUMENTO[item.estado] || ESTADOS_DOCUMENTO.faltante).icono;
 
   return h(
     'div',
@@ -196,11 +196,14 @@ export function tarjetaDocumentacion(grupo, alActualizar) {
 }
 
 // Redibuja el bloque completo de documentacion cuando algo cambia.
-export function bloqueDocumentacion(documentacion) {
+// `alCambiar` recibe la documentacion nueva, para que el contador del titulo
+// no quede mostrando un numero viejo.
+export function bloqueDocumentacion(documentacion, alCambiar) {
   const contenedor = h('div', {});
 
   const pintar = (datos) => {
     vaciar(contenedor).append(...datos.map((grupo) => tarjetaDocumentacion(grupo, pintar)));
+    if (alCambiar) alCambiar(datos);
   };
 
   pintar(documentacion);

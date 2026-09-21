@@ -47,6 +47,11 @@ BEGIN
 END;
 $$;
 
+-- Estados de un documento, en el orden en que avanza el tramite.
+CREATE OR REPLACE FUNCTION public.estados_documento()
+RETURNS text[] LANGUAGE sql IMMUTABLE
+AS $$ SELECT ARRAY['faltante','pedido','en_proceso','aprobado']::text[] $$;
+
 CREATE OR REPLACE FUNCTION public.tipos_documento()
 RETURNS text[] LANGUAGE sql IMMUTABLE
 AS $$ SELECT ARRAY['titulo','dominio','multas','patentes','form_08','cedula','verificacion_policial','vtv']::text[] $$;

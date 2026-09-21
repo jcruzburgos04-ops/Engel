@@ -149,11 +149,12 @@ export const ESTADOS_VENTA = {
   cancelado: { texto: 'Cancelado', clase: 'etiqueta--error' }
 };
 
+// Orden de trabajo de un documento: de lo que falta a lo que ya esta.
 export const ESTADOS_DOCUMENTO = {
-  pendiente: { texto: 'Pendiente', clase: '' },
-  en_tramite: { texto: 'En tramite', clase: 'etiqueta--aviso' },
-  ok: { texto: 'Listo', clase: 'etiqueta--ok' },
-  no_aplica: { texto: 'No aplica', clase: 'etiqueta--info' }
+  faltante: { texto: 'Faltante', clase: '', icono: '⬜' },
+  pedido: { texto: 'Pedido', clase: 'etiqueta--info', icono: '📩' },
+  en_proceso: { texto: 'En proceso', clase: 'etiqueta--aviso', icono: '🟡' },
+  aprobado: { texto: 'Aprobado', clase: 'etiqueta--ok', icono: '✅' }
 };
 
 export function etiquetaEstadoVenta(estado) {
