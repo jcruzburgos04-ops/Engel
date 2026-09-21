@@ -35,6 +35,23 @@ export function traducirError(error) {
   const codigo = error.code || '';
 
   const conocidos = [
+    // Pasa cuando la web ya se actualizo y el SQL todavia no: la base rechaza
+    // valores que la web da por buenos. El mensaje de Postgres no se entiende.
+    [
+      /documentos_estado_check/i,
+      'La base de datos todavia no conoce los estados nuevos de la documentacion. ' +
+        'Hay que correr el archivo supabase/actualizar.sql en Supabase → SQL Editor.'
+    ],
+    [
+      /violates check constraint/i,
+      'La base de datos rechazo ese dato. Puede que este desactualizada: ' +
+        'proba corriendo supabase/actualizar.sql en Supabase → SQL Editor.'
+    ],
+    [
+      /could not find the function|function .* does not exist/i,
+      'Falta una funcion en la base de datos. Hay que correr supabase/actualizar.sql ' +
+        'en Supabase → SQL Editor.'
+    ],
     [/Invalid login credentials/i, 'Email o contrasena incorrectos.'],
     [/Email not confirmed/i, 'Todavia no confirmaste tu email. Revisa tu correo.'],
     [/User already registered/i, 'Ya existe una cuenta con ese email. Proba iniciar sesion.'],

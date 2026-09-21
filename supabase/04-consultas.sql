@@ -431,3 +431,7 @@ BEGIN
     EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO authenticated', f);
   END LOOP;
 END $$;
+
+-- La version del esquema la puede consultar cualquiera: es solo un numero y
+-- sirve para avisar en la pantalla de ingreso si la base quedo atrasada.
+GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;

@@ -5,6 +5,7 @@
 
 import { chromium } from 'playwright';
 import fs from 'fs';
+import { execSync } from 'child_process';
 
 const BASE = 'http://127.0.0.1:4100';
 const FALSO = 'http://127.0.0.1:5555';
@@ -268,6 +269,30 @@ const avisoIntruso = await p3.locator('.aviso--error').innerText().catch(() => '
 ok(entro === 0, 'no entra a la web');
 ok(/no fue habilitado|administrador/i.test(avisoIntruso), `se le explica por que: "${avisoIntruso.slice(0, 70)}"`);
 await captura(p3, '26-sin-invitacion');
+
+// ---------------------------------------------------------------------
+console.log('11. Si la base quedo vieja, la web lo dice');
+// La web se publica sola y el SQL se corre a mano: hay que avisar en castellano
+// en vez de dejar que Postgres tire un error que nadie entiende.
+const psql = (sql) =>
+  execSync(
+    `psql -h "${process.env.PGHOST || '/tmp'}" -p ${process.env.PGPORT || 5433} ` +
+      `-U "${process.env.PGUSER || 'engel'}" -d "${process.env.PGDATABASE || 'engel_web'}" -qc ${JSON.stringify(sql)}`,
+    { stdio: 'pipe' }
+  );
+
+psql("CREATE OR REPLACE FUNCTION public.version_esquema() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 1'");
+await p.goto(BASE, { waitUntil: 'networkidle' });
+await p.waitForSelector('.barra-version', { timeout: 15000 }).catch(() => {});
+const avisoVersion = await p.locator('.barra-version').innerText().catch(() => '');
+ok(/desactualizada/i.test(avisoVersion), 'avisa que la base quedo atras');
+ok(/actualizar\.sql/i.test(avisoVersion), 'dice que archivo hay que correr');
+await captura(p, '27-base-vieja');
+
+psql("CREATE OR REPLACE FUNCTION public.version_esquema() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 2'");
+await p.goto(BASE, { waitUntil: 'networkidle' });
+await p.waitForSelector('.menu', { timeout: 15000 });
+ok((await p.locator('.barra-version').count()) === 0, 'con la base al dia no molesta con avisos');
 
 await nav.close();
 

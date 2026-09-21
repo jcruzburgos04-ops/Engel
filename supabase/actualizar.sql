@@ -22,6 +22,93 @@
 -- y el otro quedan apuntando a columnas que ya no existen y cargar una
 -- venta falla.
 
+CREATE OR REPLACE FUNCTION public.version_esquema()
+RETURNS integer LANGUAGE sql IMMUTABLE
+AS $$ SELECT 2 $$;
+
+-- Estados de un documento, en el orden en que avanza el tramite.
+CREATE OR REPLACE FUNCTION public.estados_documento()
+RETURNS text[] LANGUAGE sql IMMUTABLE
+AS $$ SELECT ARRAY['faltante','pedido','en_proceso','aprobado']::text[] $$;
+
+CREATE OR REPLACE FUNCTION public.tipos_documento()
+RETURNS text[] LANGUAGE sql IMMUTABLE
+AS $$ SELECT ARRAY['titulo','dominio','multas','patentes','form_08','cedula','verificacion_policial','vtv']::text[] $$;
+
+-- Texto recortado, nunca nulo.
+CREATE OR REPLACE FUNCTION public.txt(p jsonb, p_clave text, p_largo integer DEFAULT 200)
+RETURNS text LANGUAGE sql IMMUTABLE
+AS $$ SELECT left(COALESCE(trim(p ->> p_clave), ''), p_largo) $$;
+
+-- ---------------------------------------------------------------------
+-- Vehiculos
+-- ---------------------------------------------------------------------
+
+-- Crea el vehiculo si el dominio es nuevo. Si ya existe, completa los campos
+-- que vengan y deja como estaban los que no: guardar un dato no borra el resto.
+CREATE OR REPLACE FUNCTION public.guardar_vehiculo(p_datos jsonb)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_dominio text := public.normalizar_dominio(p_datos ->> 'dominio');
+  v_id bigint;
+  v_tenencia text;
+BEGIN
+  IF v_dominio = '' THEN
+    RAISE EXCEPTION 'El dominio (patente) es obligatorio.' USING ERRCODE = '22023';
+  END IF;
+  IF NOT public.dominio_valido(v_dominio) THEN
+    RAISE EXCEPTION 'El dominio "%" no tiene un formato valido. Autos: AAA123 o AB123CD. Motos: 123ABC o A123BCD.', p_datos ->> 'dominio'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT id INTO v_id FROM public.vehiculos WHERE dominio = v_dominio;
+
+  IF v_id IS NULL THEN
+    v_tenencia := COALESCE(NULLIF(p_datos ->> 'tenencia', ''), 'propio');
+    IF v_tenencia = 'consigna' AND public.txt(p_datos, 'consignante_nombre', 150) = '' THEN
+      RAISE EXCEPTION 'Si el auto esta en consigna tenes que indicar el nombre del consignante.'
+        USING ERRCODE = '22023';
+    END IF;
+
+    INSERT INTO public.vehiculos (
+      dominio, marca, modelo, version, anio, color, kilometraje,
+      tenencia, consignante_nombre, consignante_contacto, descripcion
+    ) VALUES (
+      v_dominio,
+      public.txt(p_datos, 'marca', 80),
+      public.txt(p_datos, 'modelo', 80),
+      public.txt(p_datos, 'version', 120),
+      NULLIF(p_datos ->> 'anio', '')::integer,
+      public.txt(p_datos, 'color', 60),
+      NULLIF(p_datos ->> 'kilometraje', '')::integer,
+      v_tenencia,
+      public.txt(p_datos, 'consignante_nombre', 150),
+      public.txt(p_datos, 'consignante_contacto', 150),
+      public.txt(p_datos, 'descripcion', 500)
+    )
+    RETURNING id INTO v_id;
+  ELSE
+    -- Solo se pisan los campos que vienen con algo.
+    UPDATE public.vehiculos SET
+      marca = CASE WHEN public.txt(p_datos, 'marca', 80) <> '' THEN public.txt(p_datos, 'marca', 80) ELSE marca END,
+      modelo = CASE WHEN public.txt(p_datos, 'modelo', 80) <> '' THEN public.txt(p_datos, 'modelo', 80) ELSE modelo END,
+      version = CASE WHEN public.txt(p_datos, 'version', 120) <> '' THEN public.txt(p_datos, 'version', 120) ELSE version END,
+      anio = COALESCE(NULLIF(p_datos ->> 'anio', '')::integer, anio),
+      color = CASE WHEN public.txt(p_datos, 'color', 60) <> '' THEN public.txt(p_datos, 'color', 60) ELSE color END,
+      kilometraje = COALESCE(NULLIF(p_datos ->> 'kilometraje', '')::integer, kilometraje),
+      tenencia = COALESCE(NULLIF(p_datos ->> 'tenencia', ''), tenencia),
+      consignante_nombre = CASE WHEN public.txt(p_datos, 'consignante_nombre', 150) <> '' THEN public.txt(p_datos, 'consignante_nombre', 150) ELSE consignante_nombre END,
+      consignante_contacto = CASE WHEN public.txt(p_datos, 'consignante_contacto', 150) <> '' THEN public.txt(p_datos, 'consignante_contacto', 150) ELSE consignante_contacto END,
+      descripcion = CASE WHEN public.txt(p_datos, 'descripcion', 500) <> '' THEN public.txt(p_datos, 'descripcion', 500) ELSE descripcion END
+    WHERE id = v_id;
+  END IF;
+
+  RETURN v_id;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.dominio_valido(p_dominio text)
 RETURNS boolean LANGUAGE sql IMMUTABLE
 AS $$
@@ -538,6 +625,8 @@ BEGIN
 END
 $migracion$;
 
+GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
+
 NOTIFY pgrst, 'reload schema';
 
 -- ---------------------------------------------------------------------
@@ -565,7 +654,11 @@ SELECT control, estado, detalle FROM (
          (SELECT COALESCE(string_agg(estado || ': ' || cantidad, ' · ' ORDER BY estado), 'sin documentos')
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
-  SELECT 4, 'Tus datos',
+  SELECT 4, 'Version de la base',
+         CASE WHEN public.version_esquema() >= 2 THEN 'OK' ELSE 'FALTA' END,
+         'version ' || public.version_esquema()
+  UNION ALL
+  SELECT 5, 'Tus datos',
          'INFO',
          (SELECT count(*) FROM public.ventas) || ' venta(s) · '
          || (SELECT count(*) FROM public.vehiculos) || ' auto(s) · '

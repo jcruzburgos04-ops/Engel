@@ -110,6 +110,24 @@ export function encabezado(titulo, subtitulo, ...acciones) {
   );
 }
 
+// La web se publica sola pero el SQL se corre a mano, asi que la base puede
+// quedar atras. Cuando pasa, medio programa deja de funcionar con errores de
+// Postgres que no dicen nada: mejor decirlo una vez, arriba de todo.
+function avisoDeVersion() {
+  const cfg = estado.config;
+  if (!cfg || typeof cfg.version_base !== 'number') return null;
+  if (cfg.version_base >= api.VERSION_ESQUEMA) return null;
+
+  return h(
+    'div',
+    { class: 'aviso aviso--error barra-version' },
+    h('strong', {}, 'La base de datos esta desactualizada. '),
+    'Hasta que se actualice, algunas cosas van a fallar (por ejemplo los estados nuevos ' +
+      'de la documentacion). Entra a Supabase → SQL Editor, pega el contenido del archivo ' +
+      'supabase/actualizar.sql y dale a Run. Se puede correr las veces que haga falta.'
+  );
+}
+
 // Numero del ultimo dibujado pedido. Si mientras se arma una pantalla se
 // pide otra, la primera se descarta en vez de pisar a la nueva.
 let dibujadoActual = 0;
@@ -129,7 +147,11 @@ async function dibujar() {
   const miTurno = ++dibujadoActual;
 
   const contenido = h('main', { class: 'contenido' }, h('div', { class: 'cargando' }, 'Cargando…'));
-  vaciar(raiz).append(h('div', { class: 'app' }, menuLateral(resuelto.definicion.ruta), contenido));
+  const partes = [
+    avisoDeVersion(),
+    h('div', { class: 'app' }, menuLateral(resuelto.definicion.ruta), contenido)
+  ].filter(Boolean);
+  vaciar(raiz).append(...partes);
 
   try {
     const vista = await resuelto.definicion.vista(resuelto.params);
@@ -159,6 +181,7 @@ function cajaLogin(...contenido) {
         'div',
         { class: 'login__caja' },
         h('div', { class: 'login__marca' }, h('strong', {}, 'ENGEL'), h('span', {}, 'Administracion de ventas')),
+        avisoDeVersion(),
         ...contenido
       )
     )

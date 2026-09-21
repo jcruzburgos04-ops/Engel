@@ -59,7 +59,7 @@ Al terminar, abajo en **Results** aparece una tabla con el resultado:
 | control | estado | detalle |
 | --- | --- | --- |
 | Tablas de datos | OK | 11 de 11 |
-| Funciones del sistema | OK | 8 de 8 |
+| Funciones del sistema | OK | 9 de 9 |
 | Reglas de acceso a los datos | OK | 29 reglas |
 | Deposito de documentacion | OK | creado |
 | Reglas de acceso a los archivos | OK | 4 de 4 |
@@ -73,6 +73,17 @@ Para comprobar esto en cualquier momento, sin reinstalar nada, se puede pegar
 y correr [`supabase/verificar.sql`](supabase/verificar.sql).
 
 Se puede volver a ejecutar cuando sea: no borra ni duplica nada.
+
+#### Si la base ya estaba instalada de antes
+
+La web se publica sola cada vez que se toca el codigo, pero el SQL hay que
+correrlo a mano. Cuando la base se queda atras, la web lo avisa con una barra
+roja arriba de todo que dice que hay que actualizarla.
+
+Para ponerla al dia: **SQL Editor** → **New query**, pegar todo el contenido de
+[`supabase/actualizar.sql`](supabase/actualizar.sql) y apretar **Run**. Tambien
+termina con una tabla de resultado, no borra datos y se puede correr las veces
+que haga falta.
 
 ### 3. Conectar la web con la base
 
@@ -254,6 +265,7 @@ public/                 La web (HTML, CSS y JavaScript sin compilar)
 
 supabase/
   instalar.sql          Todo junto, para pegar de una vez
+  actualizar.sql        Para poner al dia una base ya instalada
   01-esquema.sql        Tablas e indices
   02-seguridad.sql      Permisos, invitaciones y historial automatico
   03-funciones.sql      Logica de negocio (validaciones y transacciones)

@@ -22,6 +22,7 @@ function extraerFuncion(archivo, nombre) {
 
 // Todas las funciones que cambiaron desde la primera instalacion.
 const FUNCIONES = [
+  ['03-funciones.sql', 'version_esquema'],
   ['03-funciones.sql', 'dominio_valido'],
   ['03-funciones.sql', 'estados_documento'],
   ['03-funciones.sql', 'guardar_vehiculo'],
@@ -122,6 +123,8 @@ BEGIN
 END
 $migracion$;
 
+GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
+
 NOTIFY pgrst, 'reload schema';
 
 -- ---------------------------------------------------------------------
@@ -149,7 +152,11 @@ SELECT control, estado, detalle FROM (
          (SELECT COALESCE(string_agg(estado || ': ' || cantidad, ' · ' ORDER BY estado), 'sin documentos')
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
-  SELECT 4, 'Tus datos',
+  SELECT 4, 'Version de la base',
+         CASE WHEN public.version_esquema() >= 2 THEN 'OK' ELSE 'FALTA' END,
+         'version ' || public.version_esquema()
+  UNION ALL
+  SELECT 5, 'Tus datos',
          'INFO',
          (SELECT count(*) FROM public.ventas) || ' venta(s) · '
          || (SELECT count(*) FROM public.vehiculos) || ' auto(s) · '

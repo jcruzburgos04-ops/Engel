@@ -47,6 +47,15 @@ BEGIN
 END;
 $$;
 
+-- Version del esquema. Sube con cada cambio que la web necesita si o si.
+-- La web la consulta al arrancar: si la base quedo atras, avisa en vez de
+-- dejar que salten errores sueltos al usar el sistema.
+--   1 = primera instalacion
+--   2 = patentes de moto, sin chasis/motor, estados nuevos de documentacion
+CREATE OR REPLACE FUNCTION public.version_esquema()
+RETURNS integer LANGUAGE sql IMMUTABLE
+AS $$ SELECT 2 $$;
+
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
 RETURNS text[] LANGUAGE sql IMMUTABLE

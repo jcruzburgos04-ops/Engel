@@ -612,6 +612,15 @@ BEGIN
 END;
 $$;
 
+-- Version del esquema. Sube con cada cambio que la web necesita si o si.
+-- La web la consulta al arrancar: si la base quedo atras, avisa en vez de
+-- dejar que salten errores sueltos al usar el sistema.
+--   1 = primera instalacion
+--   2 = patentes de moto, sin chasis/motor, estados nuevos de documentacion
+CREATE OR REPLACE FUNCTION public.version_esquema()
+RETURNS integer LANGUAGE sql IMMUTABLE
+AS $$ SELECT 2 $$;
+
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
 RETURNS text[] LANGUAGE sql IMMUTABLE
@@ -1441,6 +1450,10 @@ BEGIN
   END LOOP;
 END $$;
 
+-- La version del esquema la puede consultar cualquiera: es solo un numero y
+-- sirve para avisar en la pantalla de ingreso si la base quedo atrasada.
+GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
+
 -- ===== 05-almacenamiento.sql =====
 -- Engel · Donde se guardan los archivos de documentacion
 -- =====================================================================
@@ -1545,7 +1558,8 @@ WITH controles AS (
     (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'public'
         AND p.proname IN ('crear_venta','actualizar_venta','venta_completa','listar_ventas',
-                          'buscar_dominio','panel_documentacion','estadisticas','es_miembro')) AS funciones,
+                          'buscar_dominio','panel_documentacion','estadisticas','es_miembro',
+                          'version_esquema')) AS funciones,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'public') AS reglas,
     (SELECT count(*) FROM storage.buckets WHERE id = 'documentacion') AS deposito,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'storage'
@@ -1559,8 +1573,8 @@ filas AS (
   FROM controles
   UNION ALL
   SELECT 2, 'Funciones del sistema',
-         CASE WHEN funciones = 8 THEN 'OK' ELSE 'FALTA' END,
-         funciones || ' de 8'
+         CASE WHEN funciones = 9 THEN 'OK' ELSE 'FALTA' END,
+         funciones || ' de 9'
   FROM controles
   UNION ALL
   SELECT 3, 'Reglas de acceso a los datos',
@@ -1584,14 +1598,14 @@ filas AS (
   UNION ALL
   SELECT 6,
          '>>> RESULTADO',
-         CASE WHEN tablas = 11 AND funciones = 8 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 11 AND funciones = 9 AND deposito = 1 AND reglas_archivos = 4
               THEN 'TODO LISTO'
-              WHEN tablas = 11 AND funciones = 8 AND deposito = 1
+              WHEN tablas = 11 AND funciones = 9 AND deposito = 1
               THEN 'CASI'
               ELSE 'REVISAR' END,
-         CASE WHEN tablas = 11 AND funciones = 8 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 11 AND funciones = 9 AND deposito = 1 AND reglas_archivos = 4
               THEN 'Ya podes conectar la web. Seguí con el paso 3 del README.'
-              WHEN tablas = 11 AND funciones = 8 AND deposito = 1
+              WHEN tablas = 11 AND funciones = 9 AND deposito = 1
               THEN 'Falta solo lo de la fila 5. Todo lo demas quedo instalado.'
               ELSE 'Algo no se creo: volve a pegar el archivo completo y correlo de nuevo.' END
   FROM controles

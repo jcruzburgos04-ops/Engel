@@ -87,8 +87,36 @@ async function perfilDe(usuario) {
   return data;
 }
 
+// Version del esquema que esta web necesita en la base. La web se publica
+// sola (Netlify) pero el SQL se corre a mano, asi que pueden quedar
+// desfasadas: si la base es mas vieja, conviene decirlo con todas las letras
+// en vez de dejar que Postgres tire un error que nadie entiende.
+export const VERSION_ESQUEMA = 2;
+
+// Devuelve la version del esquema instalado, o null si no se pudo averiguar.
+// Una base vieja no tiene la funcion version_esquema(): eso cuenta como 1.
+async function versionDeLaBase(cliente) {
+  try {
+    const { data, error } = await conLimiteDeEspera(
+      cliente.rpc('version_esquema'),
+      ESPERA_CONSULTA_MS,
+      'La version de la base'
+    );
+    if (!error) return Number(data) || 0;
+    const texto = String(error.message || '');
+    const falta = error.code === 'PGRST202' || error.code === '42883' || /version_esquema/i.test(texto);
+    // Cualquier otra falla (sin internet, base dormida) no significa que este
+    // desactualizada: se avisa por otro lado.
+    return falta ? 1 : null;
+  } catch {
+    return null;
+  }
+}
+
 export const api = {
   ErrorApi,
+
+  VERSION_ESQUEMA,
 
   async configuracion() {
     const cliente = await conectar();
@@ -97,6 +125,8 @@ export const api = {
       estados_venta: ['pendiente', 'en_preparacion', 'listo_entrega', 'entregado', 'cancelado'],
       monedas: ['ARS', 'USD'],
       max_file_mb: config.maxArchivoMb,
+      version_web: VERSION_ESQUEMA,
+      version_base: await versionDeLaBase(cliente),
       usuario: data.session ? await perfilDe(data.session.user) : null
     };
   },
