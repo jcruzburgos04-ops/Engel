@@ -12,8 +12,6 @@ function fichaVehiculo(vehiculo) {
     ['Marca y modelo', descripcionVehiculo(vehiculo)],
     ['Color', vehiculo.color || '—'],
     ['Kilometraje', vehiculo.kilometraje ? `${numero(vehiculo.kilometraje)} km` : '—'],
-    ['Nro. de chasis', vehiculo.nro_chasis || '—'],
-    ['Nro. de motor', vehiculo.nro_motor || '—'],
     ['Descripcion', vehiculo.descripcion || '—']
   ];
 

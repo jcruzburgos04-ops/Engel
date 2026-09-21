@@ -128,10 +128,11 @@ suyo.
 
 ## Como se usa
 
-1. **Cargar venta**: se completa el auto que se vende (dominio, descripcion y
-   si es propio o consigna), los datos de la operacion, la fecha de entrega
-   estimada y, si hay, las permutas. Al guardar se generan solos los
-   checklists de documentacion.
+1. **Cargar venta**: del auto alcanza con **dominio, marca, modelo y ano**, mas
+   si es propio o esta en consigna. Version, color y kilometraje estan en "Mas
+   datos del auto", plegado, porque casi nunca hacen falta. Despues van los
+   datos de la operacion, la fecha de entrega estimada y, si hay, las
+   permutas. Al guardar se generan solos los checklists de documentacion.
 2. **Editar**: en la ficha de la venta se cambia cualquier dato directamente
    sobre el campo. No hay boton de guardar: se guarda solo.
 3. **Documentacion**: desde la ficha se sube el archivo de cada documento. Al

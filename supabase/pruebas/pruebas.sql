@@ -185,10 +185,15 @@ SELECT verificar('guardar un campo del auto no borra los demas',
           AND v.descripcion = 'Corolla XEI gris'
      FROM public.vehiculos v JOIN public.ventas ve ON ve.vehiculo_id = v.id WHERE ve.id = :venta_id));
 
-SELECT public.actualizar_venta(:venta_id, '{"vehiculo":{"nro_chasis":""}}'::jsonb);
+SELECT public.actualizar_venta(:venta_id, '{"vehiculo":{"color":""}}'::jsonb);
 SELECT verificar('se puede vaciar un campo a proposito',
-  (SELECT v.nro_chasis = '' AND v.marca = 'Toyota'
+  (SELECT v.color = '' AND v.marca = 'Toyota' AND v.modelo = 'Corolla'
      FROM public.vehiculos v JOIN public.ventas ve ON ve.vehiculo_id = v.id WHERE ve.id = :venta_id));
+
+SELECT verificar('el auto ya no tiene chasis ni motor',
+  (SELECT count(*) = 0 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'vehiculos'
+      AND column_name IN ('nro_chasis', 'nro_motor')));
 
 \echo ''
 \echo '== Historial =='

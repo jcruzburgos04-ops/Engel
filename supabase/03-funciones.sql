@@ -89,7 +89,7 @@ BEGIN
     END IF;
 
     INSERT INTO public.vehiculos (
-      dominio, marca, modelo, version, anio, color, kilometraje, nro_chasis, nro_motor,
+      dominio, marca, modelo, version, anio, color, kilometraje,
       tenencia, consignante_nombre, consignante_contacto, descripcion
     ) VALUES (
       v_dominio,
@@ -99,8 +99,6 @@ BEGIN
       NULLIF(p_datos ->> 'anio', '')::integer,
       public.txt(p_datos, 'color', 60),
       NULLIF(p_datos ->> 'kilometraje', '')::integer,
-      public.txt(p_datos, 'nro_chasis', 60),
-      public.txt(p_datos, 'nro_motor', 60),
       v_tenencia,
       public.txt(p_datos, 'consignante_nombre', 150),
       public.txt(p_datos, 'consignante_contacto', 150),
@@ -116,8 +114,6 @@ BEGIN
       anio = COALESCE(NULLIF(p_datos ->> 'anio', '')::integer, anio),
       color = CASE WHEN public.txt(p_datos, 'color', 60) <> '' THEN public.txt(p_datos, 'color', 60) ELSE color END,
       kilometraje = COALESCE(NULLIF(p_datos ->> 'kilometraje', '')::integer, kilometraje),
-      nro_chasis = CASE WHEN public.txt(p_datos, 'nro_chasis', 60) <> '' THEN public.txt(p_datos, 'nro_chasis', 60) ELSE nro_chasis END,
-      nro_motor = CASE WHEN public.txt(p_datos, 'nro_motor', 60) <> '' THEN public.txt(p_datos, 'nro_motor', 60) ELSE nro_motor END,
       tenencia = COALESCE(NULLIF(p_datos ->> 'tenencia', ''), tenencia),
       consignante_nombre = CASE WHEN public.txt(p_datos, 'consignante_nombre', 150) <> '' THEN public.txt(p_datos, 'consignante_nombre', 150) ELSE consignante_nombre END,
       consignante_contacto = CASE WHEN public.txt(p_datos, 'consignante_contacto', 150) <> '' THEN public.txt(p_datos, 'consignante_contacto', 150) ELSE consignante_contacto END,
@@ -137,8 +133,8 @@ AS $$
 DECLARE
   clave text;
   permitidos text[] := ARRAY['marca','modelo','version','anio','color','kilometraje',
-                             'nro_chasis','nro_motor','tenencia','consignante_nombre',
-                             'consignante_contacto','descripcion'];
+                             'tenencia','consignante_nombre','consignante_contacto',
+                             'descripcion'];
 BEGIN
   FOR clave IN SELECT jsonb_object_keys(p_datos) LOOP
     IF NOT (clave = ANY (permitidos)) THEN CONTINUE; END IF;

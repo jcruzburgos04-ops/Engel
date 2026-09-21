@@ -233,6 +233,32 @@ textarea { resize: vertical; min-height: 76px; }
 input[type="file"] { padding: .35rem; font-size: .82rem; }
 .dominio-input { text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
 
+/* Seccion plegable con los datos que no hacen falta para cargar rapido */
+.mas-datos { margin-top: .875rem; }
+.mas-datos > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--texto-suave);
+  padding: .35rem .6rem;
+  border-radius: var(--radio-chico);
+  list-style: none;
+  user-select: none;
+}
+.mas-datos > summary::-webkit-details-marker { display: none; }
+.mas-datos > summary::before {
+  content: '▸';
+  font-size: .9em;
+  transition: transform .15s;
+}
+.mas-datos[open] > summary::before { transform: rotate(90deg); }
+.mas-datos > summary:hover { background: var(--superficie-2); color: var(--texto); }
+.mas-datos > summary:focus-visible { outline: 2px solid var(--primario); outline-offset: 2px; }
+.mas-datos > .campos { margin-top: .75rem; }
+
 fieldset { border: 1px solid var(--borde-suave); border-radius: var(--radio); padding: 1rem; margin: 0 0 1rem; }
 legend { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--texto-suave); padding: 0 .35rem; }
 

@@ -114,8 +114,6 @@ AS $$
             'anio', vp.anio,
             'color', vp.color,
             'kilometraje', vp.kilometraje,
-            'nro_chasis', vp.nro_chasis,
-            'nro_motor', vp.nro_motor,
             'descripcion', vp.descripcion
           ) ORDER BY p.id)
         FROM public.permutas p JOIN public.vehiculos vp ON vp.id = p.vehiculo_id

@@ -45,8 +45,6 @@ CREATE TABLE IF NOT EXISTS public.vehiculos (
   anio                  integer,
   color                 text NOT NULL DEFAULT '',
   kilometraje           integer,
-  nro_chasis            text NOT NULL DEFAULT '',
-  nro_motor             text NOT NULL DEFAULT '',
   tenencia              text NOT NULL DEFAULT 'propio' CHECK (tenencia IN ('propio', 'consigna')),
   consignante_nombre    text NOT NULL DEFAULT '',
   consignante_contacto  text NOT NULL DEFAULT '',

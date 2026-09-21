@@ -193,12 +193,7 @@ export async function vistaVenta({ id }) {
           { class: 'campos' },
           campoAuto2('Marca', h('input', { value: v.marca || '' }), 'marca'),
           campoAuto2('Modelo', h('input', { value: v.modelo || '' }), 'modelo'),
-          campoAuto2('Version', h('input', { value: v.version || '' }), 'version'),
           campoAuto2('Ano', h('input', { type: 'number', value: v.anio ?? '' }), 'anio'),
-          campoAuto2('Color', h('input', { value: v.color || '' }), 'color'),
-          campoAuto2('Kilometraje', h('input', { type: 'number', min: 0, value: v.kilometraje ?? '' }), 'kilometraje'),
-          campoAuto2('Nro. de chasis', h('input', { value: v.nro_chasis || '' }), 'nro_chasis'),
-          campoAuto2('Nro. de motor', h('input', { value: v.nro_motor || '' }), 'nro_motor'),
           campoAuto2('Origen del auto', selectorTenencia, 'tenencia'),
           v.tenencia === 'consigna'
             ? campoAuto2('Consignante', h('input', { value: v.consignante_nombre || '' }), 'consignante_nombre')
@@ -215,6 +210,18 @@ export async function vistaVenta({ id }) {
             envolver: (valor, clave) => ({ vehiculo: { [clave]: valor } }),
             ayuda: 'Sirve para reconocer el auto de un vistazo en los listados.'
           })
+        ),
+        h(
+          'details',
+          { class: 'mas-datos', open: Boolean(v.version || v.color || v.kilometraje) },
+          h('summary', {}, 'Mas datos del auto (opcional)'),
+          h(
+            'div',
+            { class: 'campos' },
+            campoAuto2('Version', h('input', { value: v.version || '' }), 'version'),
+            campoAuto2('Color', h('input', { value: v.color || '' }), 'color'),
+            campoAuto2('Kilometraje', h('input', { type: 'number', min: 0, value: v.kilometraje ?? '' }), 'kilometraje')
+          )
         )
       )
     );
@@ -372,7 +379,7 @@ function bloquePermuta(venta, permuta, recargar) {
       [
         permuta.color ? `Color ${permuta.color}` : null,
         permuta.kilometraje ? `${numero(permuta.kilometraje)} km` : null,
-        permuta.nro_chasis ? `Chasis ${permuta.nro_chasis}` : null
+        permuta.anio ? String(permuta.anio) : null
       ].filter(Boolean).join(' · ') || 'Sin datos adicionales'
     ),
     permuta.observaciones ? h('div', { style: 'margin-top:.35rem;white-space:pre-wrap' }, permuta.observaciones) : null
