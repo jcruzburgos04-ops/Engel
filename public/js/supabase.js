@@ -11,6 +11,8 @@ let clientePromesa;
 
 export function conectar() {
   if (!clientePromesa) {
+    // Antes la sesion se guardaba sin decir de que proyecto era.
+    try { localStorage.removeItem('engel:sesion'); } catch { /* sin localStorage */ }
     // Permite reemplazar la biblioteca en las pruebas automatizadas.
     const modulo = globalThis.__ENGEL_MODULO_SUPABASE__ || CDN;
     clientePromesa = import(/* @vite-ignore */ modulo).then(({ createClient }) =>
@@ -19,7 +21,8 @@ export function conectar() {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
-          storageKey: 'engel:sesion'
+          // Una sesion por proyecto: la de otro proyecto no sirve aca.
+          storageKey: `engel:sesion:${config.proyecto}`
         }
       })
     );
@@ -56,7 +59,9 @@ export function traducirError(error) {
     [/Email not confirmed/i, 'Todavia no confirmaste tu email. Revisa tu correo.'],
     [/User already registered/i, 'Ya existe una cuenta con ese email. Proba iniciar sesion.'],
     [/Password should be at least/i, 'La contrasena tiene que tener al menos 8 caracteres.'],
-    [/JWT expired|Invalid Refresh Token/i, 'Tu sesion vencio. Volve a ingresar.'],
+    // Tambien cuando la sesion es de otro proyecto o ya no es valida.
+    [/JWT expired|Invalid Refresh Token|No suitable key|wrong key type|JWSError|JWT (is )?invalid|invalid JWT|PGRST301/i,
+      'Tu sesion vencio. Volve a ingresar.'],
     [/Failed to fetch|NetworkError|Load failed/i, 'No se pudo conectar. Revisa tu conexion a internet.'],
     [/row-level security|permission denied/i, 'No tenes permisos para esta accion.'],
     [/duplicate key|already exists/i, 'Ese registro ya existe.'],

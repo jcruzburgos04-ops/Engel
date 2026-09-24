@@ -3,7 +3,8 @@
 // servidor de pruebas. No se publica: solo lo carga Playwright.
 
 const SERVIDOR = globalThis.__ENGEL_SERVIDOR_FALSO__ || 'http://127.0.0.1:5555';
-const LLAVE_TOKEN = 'engel:token-prueba';
+// Como supabase-js: la sesion se guarda bajo la llave que pide la web.
+let LLAVE_TOKEN = 'engel:token-prueba';
 
 // Igual que supabase-js: la sesion entera (token + usuario) se guarda del
 // lado del navegador, asi getSession() no necesita pedir nada por la red.
@@ -167,7 +168,11 @@ function deposito() {
   };
 }
 
-export function createClient() {
+export function createClient(_url, _clave, opciones = {}) {
+  if (opciones.auth && opciones.auth.storageKey) {
+    LLAVE_TOKEN = opciones.auth.storageKey;
+    sesionEnMemoria = null;
+  }
   return {
     from: consulta,
     storage: { from: deposito },
@@ -193,8 +198,9 @@ export function createClient() {
         guardarSesion(data.session);
         return { data, error: null };
       },
-      async signOut() {
-        await pedir('auth/signout');
+      async signOut(opciones = {}) {
+        // scope 'local': como en supabase-js, solo se olvida en este navegador.
+        if (opciones.scope !== 'local') await pedir('auth/signout');
         guardarSesion(null);
         return { error: null };
       },

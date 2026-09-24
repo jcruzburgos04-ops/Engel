@@ -121,13 +121,26 @@ export const api = {
   async configuracion() {
     const cliente = await conectar();
     const { data } = await cliente.auth.getSession();
+
+    let usuario = null;
+    if (data.session) {
+      try {
+        usuario = await perfilDe(data.session.user);
+      } catch (error) {
+        // Una sesion vieja o de otro proyecto no se puede usar: se descarta
+        // y se pide ingresar de nuevo, en vez de mostrar un error.
+        if (!/sesion vencio/i.test(error.message)) throw error;
+        await cliente.auth.signOut({ scope: 'local' }).catch(() => {});
+      }
+    }
+
     return {
       estados_venta: ['pendiente', 'en_preparacion', 'listo_entrega', 'entregado', 'cancelado'],
       monedas: ['ARS', 'USD'],
       max_file_mb: config.maxArchivoMb,
       version_web: VERSION_ESQUEMA,
       version_base: await versionDeLaBase(cliente),
-      usuario: data.session ? await perfilDe(data.session.user) : null
+      usuario
     };
   },
 

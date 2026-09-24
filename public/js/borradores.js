@@ -7,8 +7,9 @@
 
 import { api } from './api.js';
 import { encolar } from './guardado.js';
+import { config } from './config.js';
 
-const PREFIJO_LOCAL = 'engel:borrador:';
+const PREFIJO_LOCAL = `engel:borrador:${config.proyecto}:`;
 const DEMORA_REMOTA = 1500;
 
 function claveLocal(clave) {

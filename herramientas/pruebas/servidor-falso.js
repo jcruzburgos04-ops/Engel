@@ -336,7 +336,16 @@ const servidor = http.createServer((req, res) => {
       );
 
       try {
-        const datos = await manejador(cuerpo ? JSON.parse(cuerpo) : {});
+        const pedido = cuerpo ? JSON.parse(cuerpo) : {};
+        // Como la base real: una sesion que no emitio (vencida, o de otro
+        // proyecto) se rechaza, no se trata como visitante.
+        if (pedido.token && !sesiones.has(pedido.token) && !/^auth\/(signin|signup|signout|session)$/.test(ruta)) {
+          return responder(res, 200, {
+            data: null,
+            error: { message: 'No suitable key or wrong key type', code: 'PGRST301' }
+          });
+        }
+        const datos = await manejador(pedido);
         return responder(res, 200, { data: datos === undefined ? null : datos, error: null });
       } catch (error) {
         return responder(res, 200, { data: null, error: errorDe(error) });

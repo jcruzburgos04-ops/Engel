@@ -20,6 +20,12 @@ const psql = (sql) =>
       `-U "${process.env.PGUSER || 'engel'}" -d "${process.env.PGDATABASE || 'engel_web'}" -qc ${JSON.stringify(sql)}`,
     { stdio: 'pipe' }
   );
+const psqlValor = (sql) =>
+  execSync(
+    `psql -h "${process.env.PGHOST || '/tmp'}" -p ${process.env.PGPORT || 5433} ` +
+      `-U "${process.env.PGUSER || 'engel'}" -d "${process.env.PGDATABASE || 'engel_web'}" -tAc ${JSON.stringify(sql)}`,
+    { stdio: 'pipe' }
+  ).toString().trim();
 
 // En algunos entornos el navegador ya viene instalado en otra ruta.
 const NAVEGADOR = process.env.CHROME_PATH || undefined;
@@ -482,7 +488,48 @@ try {
 }
 
 // ---------------------------------------------------------------------
-console.log('13. Si la base quedo vieja, la web lo dice');
+console.log('13. Cambio de proyecto de Supabase: nada del anterior se mezcla');
+{
+  // Una sesion que la base no reconoce (de otro proyecto): se pide ingresar,
+  // no se muestra un error.
+  const { p: p4 } = await nuevaPagina();
+  await p4.addInitScript(() => {
+    try {
+      localStorage.setItem('engel:sesion:127.0.0.1:5555', JSON.stringify({
+        access_token: 'token-de-otro-proyecto',
+        user: { id: '00000000-0000-0000-0000-000000000000', email: 'jefe@engel.com' }
+      }));
+    } catch { /* sin localStorage */ }
+  });
+  await p4.goto(BASE, { waitUntil: 'networkidle' });
+  await p4.waitForSelector('.login__caja', { timeout: 15000 });
+  const cajaIngreso = await p4.locator('.login__caja').innerText();
+  ok(!/No se pudo conectar/i.test(cajaIngreso) && (await p4.locator('input[type=email]').count()) === 1,
+    'con la sesion de otro proyecto muestra el ingreso, sin error');
+  await p4.fill('input[type=email]', 'jefe@engel.com');
+  await p4.fill('input[type=password]', 'clave-larga-123');
+  await p4.click('button[type=submit]');
+  await p4.waitForSelector('.menu', { timeout: 15000 });
+  ok(true, 'y se puede ingresar normalmente');
+  await p4.context().close();
+}
+
+// Cambios pendientes guardados por una version anterior, sin proyecto: no se
+// mandan a la base actual.
+await p.evaluate((venta) => {
+  localStorage.setItem('engel:cola-de-guardado', JSON.stringify([{
+    clave: 'vieja', operacion: 'editar_venta', intentos: 0,
+    args: { id: venta, datos: { cliente_nombre: 'NO SE DEBE MANDAR' } }
+  }]));
+}, Number(psqlValor('SELECT min(id) FROM public.ventas')));
+await p.reload({ waitUntil: 'networkidle' });
+await p.waitForSelector('.menu', { timeout: 15000 });
+await p.waitForTimeout(4000);
+ok(psqlValor("SELECT count(*) FROM public.ventas WHERE cliente_nombre = 'NO SE DEBE MANDAR'") === '0',
+  'los cambios pendientes de otro proyecto no se mandan a este');
+
+// ---------------------------------------------------------------------
+console.log('14. Si la base quedo vieja, la web lo dice');
 // La web se publica sola y el SQL se corre a mano: hay que avisar en castellano
 // en vez de dejar que Postgres tire un error que nadie entiende.
 

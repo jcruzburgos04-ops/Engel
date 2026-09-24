@@ -7,6 +7,7 @@
 
 import { h } from './util.js';
 import { api } from './api.js';
+import { config } from './config.js';
 
 // Operaciones que se pueden encolar. La cola guarda el nombre y los datos
 // (no la funcion), asi sobrevive a una recarga del navegador.
@@ -17,7 +18,9 @@ const OPERACIONES = {
   guardar_borrador: ({ clave, contenido }) => api.guardarBorrador(clave, contenido)
 };
 
-const CLAVE_COLA = 'engel:cola-de-guardado';
+// Por proyecto: un cambio pendiente de otro proyecto nunca se manda aca (el
+// mismo numero de venta puede ser otra venta).
+const CLAVE_COLA = `engel:cola-de-guardado:${config.proyecto}`;
 const MAX_INTENTOS = 12;
 const ESPERAS = [500, 1000, 2000, 4000, 8000, 15000, 30000];
 

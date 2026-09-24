@@ -49,4 +49,18 @@ try {
   // Sin localStorage se usan los valores de arriba.
 }
 
+// Identifica al proyecto de Supabase ("auuxcwvpgghzzmmodrlf"). Lo que la web
+// guarda en el navegador (la sesion, los cambios por guardar, los borradores)
+// va separado por proyecto: si algun dia se cambia de proyecto, nada del
+// anterior se mezcla con el nuevo.
+function identificarProyecto(direccion) {
+  try {
+    const { host } = new URL(direccion);
+    return /\.supabase\.co$/i.test(host) ? host.split('.')[0] : host;
+  } catch {
+    return 'sin-proyecto';
+  }
+}
+config.proyecto = identificarProyecto(config.url);
+
 export const estaConfigurado = () => Boolean(config.url && config.clave);
