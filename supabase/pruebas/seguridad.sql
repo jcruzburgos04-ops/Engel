@@ -29,7 +29,7 @@ SELECT verificar('el visitante sin sesion no ve las multas', visibles('infraccio
 SELECT verificar('el visitante sin sesion no ve las paginas de consulta', visibles('portales_infracciones') <= 0);
 
 SELECT debe_fallar('el visitante sin sesion no puede cargar una multa',
-  $$ SELECT public.guardar_infraccion('{"dominio":"AB123CD"}'::jsonb) $$);
+  $$ SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"CABA"}]}'::jsonb) $$);
 
 SELECT debe_fallar('el visitante sin sesion no puede cargar una venta',
   $$ SELECT public.crear_venta('{"cliente_nombre":"X","vehiculo":{"dominio":"AB123CD"}}'::jsonb) $$);
@@ -54,7 +54,7 @@ SELECT verificar('el usuario no habilitado no ve las multas', visibles('infracci
 SELECT verificar('el usuario no habilitado no ve las consultas', visibles('consultas_infracciones') = 0);
 
 SELECT debe_fallar('el usuario no habilitado no puede cargar una multa',
-  $$ SELECT public.guardar_infraccion('{"dominio":"AB123CD"}'::jsonb) $$, 'permisos');
+  $$ SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"CABA"}]}'::jsonb) $$, 'permisos');
 
 SELECT debe_fallar('el usuario no habilitado no puede cargar una venta',
   $$ SELECT public.crear_venta('{"vendedor_id":"22222222-2222-2222-2222-222222222222","cliente_nombre":"X","vehiculo":{"dominio":"QQ111QQ"}}'::jsonb) $$,
@@ -82,17 +82,17 @@ SELECT verificar('el integrante del equipo puede editar',
 
 SELECT verificar('el integrante del equipo ve las multas', visibles('infracciones') >= 2);
 
-SELECT public.guardar_infraccion('{"dominio":"AB123CD","acta":"V-1","monto":"1000"}'::jsonb);
-UPDATE public.infracciones SET estado = 'en_gestion' WHERE acta = 'V-1';
-SELECT verificar('un vendedor puede cargar y seguir una multa',
-  (SELECT estado = 'en_gestion' FROM public.infracciones WHERE acta = 'V-1'));
+SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"Escobar","cantidad":2}]}'::jsonb);
+UPDATE public.infracciones SET estado = 'en_gestion' WHERE jurisdiccion = 'Escobar';
+SELECT verificar('un vendedor puede cargar y seguir multas',
+  (SELECT estado = 'en_gestion' FROM public.infracciones WHERE jurisdiccion = 'Escobar'));
 
-DELETE FROM public.infracciones WHERE acta = 'V-1';
-SELECT verificar('un vendedor puede borrar una multa cargada por error',
-  (SELECT count(*) = 0 FROM public.infracciones WHERE acta = 'V-1'));
+DELETE FROM public.infracciones WHERE jurisdiccion = 'Escobar';
+SELECT verificar('un vendedor puede quitar un municipio cargado por error',
+  (SELECT count(*) = 0 FROM public.infracciones WHERE jurisdiccion = 'Escobar'));
 SELECT verificar('lo borrado queda copiado en el historial',
   (SELECT count(*) = 1 FROM public.auditoria
-    WHERE entidad = 'infraccion' AND accion = 'borrar' AND antes ->> 'acta' = 'V-1'));
+    WHERE entidad = 'infraccion' AND accion = 'borrar' AND antes ->> 'jurisdiccion' = 'Escobar'));
 
 INSERT INTO public.portales_infracciones (nombre, url) VALUES ('Tigre', 'https://ejemplo-tigre.test/');
 SELECT verificar('un vendedor puede agregar una pagina de consulta',

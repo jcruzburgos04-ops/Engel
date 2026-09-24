@@ -1,4 +1,6 @@
-// Infracciones: las multas de cada auto y el seguimiento de los pagos.
+// Infracciones: cuantas multas tiene cada auto en cada municipio, y el
+// seguimiento de si se pagaron. No se cargan una por una: por dominio se
+// anota la cantidad en cada municipio (y el total, si se sabe).
 //
 // Las paginas de multas de los municipios tienen captcha, asi que no se
 // pueden consultar solas. Lo que si se puede: guardar el link de cada una y
@@ -6,7 +8,7 @@
 // ya puesto, si esa pagina acepta la patente en el link).
 
 import { api } from '../api.js';
-import { campoAuto, campoAutoAncho } from '../campo-auto.js';
+import { campoAuto } from '../campo-auto.js';
 import { esperarGuardado } from '../guardado.js';
 import { campoDominioSugerido } from '../sugeridor.js';
 import { descargarArchivo } from '../descargas.js';
@@ -15,18 +17,20 @@ import {
   fecha, fechaHora, tamano, etiquetaDominio, descripcionVehiculo,
   dominioEsValido, normalizarDominio, formatearDominio, leerMonto,
   copiarAlPortapapeles, linkDePortal, portalCompletaSolo,
-  ESTADOS_INFRACCION, etiquetaEstadoInfraccion
+  ESTADOS_INFRACCION
 } from '../util.js';
 import { encabezado, navegar, estado, refrescarPendientes } from '../app.js';
 
 const LISTA_ESTADOS = Object.entries(ESTADOS_INFRACCION).map(([valor, info]) => ({ valor, texto: info.texto }));
 
 const FILTROS = [
-  { valor: 'abiertas', texto: 'Por resolver (impagas y en gestion)' },
-  { valor: 'impagas', texto: 'Solo impagas' },
-  { valor: 'pagadas', texto: 'Pagadas' },
-  { valor: 'todas', texto: 'Todas' }
+  { valor: 'abiertas', texto: 'Con multas por resolver' },
+  { valor: 'pagadas', texto: 'Al dia (todo pagado)' },
+  { valor: 'todas', texto: 'Todos' }
 ];
+
+const AYUDA_DOMINIO = 'Revisa el dominio. Autos: AAA123 o AB123CD. Motos: 123ABC o A123BCD.';
+const AYUDA_MONTO = 'No se entiende el monto. Escribilo asi: 85.000 o 85000,50';
 
 // Montos sin el signo, como se escriben: "85.000" o "85.000,50".
 function montoParaEditar(valor) {
@@ -36,9 +40,7 @@ function montoParaEditar(valor) {
   return new Intl.NumberFormat('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: decimales }).format(n);
 }
 
-const CAMPOS_NULOS = ['fecha', 'fecha_pago', 'monto'];
-
-// Las multas pueden tener centavos: se muestran si los hay.
+// Los montos pueden tener centavos: se muestran si los hay.
 function pesos(valor) {
   if (valor === null || valor === undefined || valor === '') return '—';
   const n = Number(valor);
@@ -48,7 +50,10 @@ function pesos(valor) {
   }).format(n);
 }
 
-const AYUDA_MONTO = 'No se entiende el monto. Escribilo asi: 85.000 o 85000,50';
+function leerCantidad(texto) {
+  const t = String(texto ?? '').trim();
+  return /^\d+$/.test(t) && Number(t) >= 1 ? Number(t) : null;
+}
 
 // ---------------------------------------------------------------------
 // Boton que abre la pagina del municipio con el dominio listo para pegar
@@ -84,101 +89,101 @@ function botonConsultar(portal, dominio, clase = 'boton') {
   );
 }
 
+
 // ---------------------------------------------------------------------
-// Alta de una multa
+// Cargar: un dominio y cuantas infracciones tiene en cada municipio
 // ---------------------------------------------------------------------
 
-export function abrirNuevaInfraccion({ dominio = '', portales = [], portalId = null, alGuardar } = {}) {
+export function abrirCargaInfracciones({ dominio = '', portales = [], municipio = '', alGuardar } = {}) {
   const sugeridor = campoDominioSugerido({ placeholder: 'AB123CD' });
   sugeridor.entrada.value = normalizarDominio(dominio);
-  sugeridor.entrada.required = true;
 
-  const OTRO = 'otro';
-  const selectorLugar = opciones(
-    h('select', {}),
-    [
-      ...portales.map((p) => ({ valor: String(p.id), texto: p.nombre })),
-      { valor: OTRO, texto: 'Otro lugar…' }
-    ],
-    portalId ? String(portalId) : (portales[0] ? String(portales[0].id) : OTRO)
-  );
-  const otroLugar = h('input', { placeholder: 'Municipio o provincia (ej. Pilar)' });
-  const campoOtroLugar = campo('¿Cual?', otroLugar);
-  const mostrarOtro = () => { campoOtroLugar.style.display = selectorLugar.value === OTRO ? '' : 'none'; };
-  selectorLugar.addEventListener('change', mostrarOtro);
-  mostrarOtro();
+  // Los municipios conocidos se sugieren al escribir, pero se puede poner
+  // cualquier otro.
+  const idLista = `municipios-${Date.now()}`;
+  const conocidos = h('datalist', { id: idLista }, ...portales.map((p) => h('option', { value: p.nombre })));
 
-  const acta = h('input', { placeholder: 'Numero de acta o causa' });
-  const fechaInfraccion = h('input', { type: 'date' });
-  const monto = h('input', { inputMode: 'decimal', placeholder: '85.000' });
-  const selectorEstado = opciones(h('select', {}), LISTA_ESTADOS, 'impaga');
-  const descripcion = h('input', { placeholder: 'Ej. exceso de velocidad, estacionamiento' });
+  const filas = h('div', { class: 'carga-municipios' });
+
+  function agregarFila(nombre = '') {
+    const municipioInput = h('input', { value: nombre, placeholder: 'Municipio (ej. CABA, Pilar)', class: 'carga__municipio' });
+    municipioInput.setAttribute('list', idLista);
+    const cantidad = h('input', { type: 'number', min: 1, step: 1, value: '1', inputMode: 'numeric', class: 'carga__cantidad' });
+    const monto = h('input', { inputMode: 'decimal', placeholder: 'Total $ (opcional)', class: 'carga__monto' });
+    const fila = h(
+      'div',
+      { class: 'carga__fila' },
+      h('label', {}, h('span', { class: 'carga__rotulo' }, 'Municipio'), municipioInput),
+      h('label', {}, h('span', { class: 'carga__rotulo' }, 'Infracciones'), cantidad),
+      h('label', {}, h('span', { class: 'carga__rotulo' }, 'Total adeudado'), monto),
+      h('button', {
+        class: 'boton boton--chico',
+        type: 'button',
+        title: 'Quitar este municipio',
+        onClick: () => { if (filas.children.length > 1) fila.remove(); }
+      }, '×')
+    );
+    fila.leer = () => ({ municipio: municipioInput.value.trim(), cantidad: cantidad.value, monto: monto.value });
+    filas.append(fila);
+    return { municipioInput, cantidad };
+  }
+
+  const primera = agregarFila(municipio);
+
   const marca = h('input', { placeholder: 'Marca' });
   const modelo = h('input', { placeholder: 'Modelo' });
-
   const error = h('div', { class: 'aviso aviso--error', style: 'display:none' });
   const mostrarError = (texto) => { error.textContent = texto; error.style.display = ''; };
+  const botonGuardar = h('button', { class: 'boton boton--primario', type: 'button' }, 'Guardar');
 
-  const botonGuardar = h('button', { class: 'boton boton--primario', type: 'button' }, 'Guardar infraccion');
-
-  const guardar = async () => {
+  botonGuardar.addEventListener('click', async () => {
     error.style.display = 'none';
     const d = normalizarDominio(sugeridor.entrada.value);
-    if (!dominioEsValido(d)) {
-      return mostrarError('Revisa el dominio. Autos: AAA123 o AB123CD. Motos: 123ABC o A123BCD.');
+    if (!dominioEsValido(d)) return mostrarError(AYUDA_DOMINIO);
+
+    const cargadas = [];
+    for (const fila of filas.children) {
+      const { municipio: m, cantidad, monto } = fila.leer();
+      if (!m && !monto) continue; // renglon vacio: se ignora
+      if (!m) return mostrarError('Falta el municipio en uno de los renglones.');
+      const n = leerCantidad(cantidad);
+      if (n === null) return mostrarError(`La cantidad de infracciones en ${m} tiene que ser un numero mayor a cero.`);
+      const total = leerMonto(monto);
+      if (total === null) return mostrarError(`${m}: ${AYUDA_MONTO}`);
+      cargadas.push({ municipio: m, cantidad: n, monto: total });
     }
-    const montoLeido = leerMonto(monto.value);
-    if (montoLeido === null) return mostrarError(AYUDA_MONTO);
-    if (selectorLugar.value === OTRO && !otroLugar.value.trim()) {
-      return mostrarError('Decinos donde es la multa (municipio o provincia).');
-    }
+    if (!cargadas.length) return mostrarError('Pone al menos un municipio con su cantidad de infracciones.');
 
     botonGuardar.disabled = true;
     botonGuardar.textContent = 'Guardando…';
     try {
-      await api.crearInfraccion({
-        dominio: d,
-        portal_id: selectorLugar.value === OTRO ? null : Number(selectorLugar.value),
-        jurisdiccion: selectorLugar.value === OTRO ? otroLugar.value.trim() : '',
-        acta: acta.value.trim(),
-        fecha: fechaInfraccion.value || null,
-        monto: montoLeido,
-        estado: selectorEstado.value,
-        descripcion: descripcion.value.trim(),
-        marca: marca.value.trim(),
-        modelo: modelo.value.trim()
-      });
+      await api.guardarInfracciones({ dominio: d, filas: cargadas, marca: marca.value.trim(), modelo: modelo.value.trim() });
       ref.cerrar();
-      avisar(`Infraccion cargada para ${formatearDominio(d)}.`);
+      const total = cargadas.reduce((suma, f) => suma + f.cantidad, 0);
+      avisar(`${formatearDominio(d)}: ${total} infraccion(es) en ${cargadas.length} municipio(s).`);
       await refrescarPendientes();
       if (alGuardar) alGuardar(d);
     } catch (err) {
       mostrarError(err.message);
       botonGuardar.disabled = false;
-      botonGuardar.textContent = 'Guardar infraccion';
+      botonGuardar.textContent = 'Guardar';
     }
     return undefined;
-  };
-  botonGuardar.addEventListener('click', guardar);
+  });
 
   const ref = abrirModal({
-    titulo: 'Cargar infraccion',
+    titulo: 'Cargar infracciones',
     cuerpo: h(
       'div',
       {},
       error,
-      h(
-        'div',
-        { class: 'campos' },
-        campo('Dominio', sugeridor.contenedor),
-        campo('Donde', selectorLugar),
-        campoOtroLugar,
-        campo('Monto', monto, 'En pesos'),
-        campo('Fecha de la infraccion', fechaInfraccion),
-        campo('Acta', acta),
-        campo('Estado', selectorEstado),
-        campoAncho('Que fue', descripcion)
-      ),
+      conocidos,
+      h('div', { class: 'campos' }, campo('Dominio', sugeridor.contenedor)),
+      h('p', { class: 'tenue', style: 'font-size:.85rem;margin:.9rem 0 .4rem' },
+        'Cuantas infracciones tiene en cada municipio. Si el municipio ya estaba cargado para este auto, se actualiza.'),
+      filas,
+      h('button', { class: 'boton boton--chico', type: 'button', style: 'margin-top:.5rem',
+        onClick: () => agregarFila().municipioInput.focus() }, '➕ Otro municipio'),
       h(
         'details',
         { class: 'mas-datos' },
@@ -192,7 +197,10 @@ export function abrirNuevaInfraccion({ dominio = '', portales = [], portalId = n
     ]
   });
 
-  if (dominio) monto.focus();
+  // El foco va a lo primero que falta completar.
+  if (!dominio) sugeridor.entrada.focus();
+  else if (!municipio) primera.municipioInput.focus();
+  else primera.cantidad.select();
   return ref;
 }
 
@@ -335,8 +343,9 @@ function seccionPortales(portales, alCambiar) {
   );
 }
 
+
 // ---------------------------------------------------------------------
-// Listado general
+// Listado general: un renglon por auto
 // ---------------------------------------------------------------------
 
 function indicador(valor, etiqueta, modificador = '') {
@@ -348,8 +357,14 @@ function indicador(valor, etiqueta, modificador = '') {
   );
 }
 
-function tablaInfracciones(filas) {
-  if (!filas.length) return vacio('No hay infracciones con ese filtro.', '✅');
+function chipMunicipio(m) {
+  const info = ESTADOS_INFRACCION[m.estado] || { clase: '' };
+  return h('span', { class: `etiqueta ${info.clase}`, title: `${info.texto || m.estado}${m.monto ? ` · ${pesos(m.monto)}` : ''}` },
+    `${m.municipio} · ${m.cantidad}`);
+}
+
+function tablaAutos(filas) {
+  if (!filas.length) return vacio('No hay autos con ese filtro.', '✅');
 
   return h(
     'div',
@@ -358,8 +373,8 @@ function tablaInfracciones(filas) {
       'table',
       {},
       h('thead', {}, h('tr', {},
-        h('th', {}, 'Dominio'), h('th', {}, 'Auto'), h('th', {}, 'Donde'), h('th', {}, 'Acta'),
-        h('th', {}, 'Fecha'), h('th', {}, 'Monto'), h('th', {}, 'Estado'), h('th', {}, 'Comprobante'))),
+        h('th', {}, 'Dominio'), h('th', {}, 'Auto'), h('th', {}, 'Infracciones por municipio'),
+        h('th', {}, 'Por resolver'), h('th', {}, 'Adeudado'), h('th', {}, 'Actualizado'))),
       h(
         'tbody',
         {},
@@ -368,14 +383,11 @@ function tablaInfracciones(filas) {
             'tr',
             { class: 'fila-link', onClick: () => navegar(`infracciones/${f.dominio}`) },
             h('td', {}, h('a', { href: `#/infracciones/${f.dominio}` }, etiquetaDominio(f.dominio))),
-            h('td', {}, f.vehiculo || '—', f.descripcion ? h('div', { class: 'mini' }, f.descripcion) : null),
-            h('td', {}, f.jurisdiccion || '—'),
-            h('td', {}, f.acta || '—'),
-            h('td', {}, fecha(f.fecha)),
-            h('td', {}, pesos(f.monto)),
-            h('td', {}, etiquetaEstadoInfraccion(f.estado),
-              f.estado === 'pagada' && f.fecha_pago ? h('div', { class: 'mini' }, `el ${fecha(f.fecha_pago)}`) : null),
-            h('td', {}, f.archivos ? `📄 ${f.archivos}` : h('span', { class: 'tenue' }, '—'))
+            h('td', {}, f.vehiculo || '—'),
+            h('td', {}, h('div', { class: 'chips' }, ...f.municipios.map(chipMunicipio))),
+            h('td', {}, f.abiertas ? h('strong', {}, String(f.abiertas)) : h('span', { class: 'etiqueta etiqueta--ok' }, 'Al dia')),
+            h('td', {}, f.abiertas ? pesos(f.monto_abierto) : '—'),
+            h('td', { class: 'mini' }, fecha(f.actualizado_en))
           )
         )
       )
@@ -390,7 +402,7 @@ export async function vistaInfracciones() {
   const irAlDominio = (valor) => {
     const d = normalizarDominio(valor);
     if (!dominioEsValido(d)) {
-      avisar('Revisa el dominio. Autos: AAA123 o AB123CD. Motos: 123ABC o A123BCD.', 'error');
+      avisar(AYUDA_DOMINIO, 'error');
       return;
     }
     navegar(`infracciones/${d}`);
@@ -405,17 +417,17 @@ export async function vistaInfracciones() {
   const indicadores = h('div', { class: 'grilla grilla--tarjetas', style: 'margin-bottom:1.25rem' });
   const cuerpoTabla = h('div', {});
   const filtro = opciones(h('select', {}), FILTROS, 'abiertas');
-  const texto = h('input', { type: 'search', placeholder: 'Buscar por dominio, municipio o acta' });
+  const texto = h('input', { type: 'search', placeholder: 'Buscar por dominio o municipio' });
 
   function pintarListado(datos) {
     const r = datos.resumen || {};
     vaciar(indicadores).append(
       indicador(r.abiertas, 'Multas por resolver', r.abiertas ? 'indicador--alerta' : ''),
-      indicador(pesos(r.monto_abierto || 0), 'Total adeudado', r.monto_abierto ? 'indicador--aviso' : ''),
+      indicador(pesos(r.monto_abierto || 0), 'Total adeudado', Number(r.monto_abierto) ? 'indicador--aviso' : ''),
       indicador(r.autos_con_abiertas, 'Autos con multas'),
-      indicador(r.pagadas, 'Pagadas')
+      indicador(r.autos_al_dia, 'Autos al dia')
     );
-    vaciar(cuerpoTabla).append(tablaInfracciones(datos.filas || []));
+    vaciar(cuerpoTabla).append(tablaAutos(datos.filas || []));
   }
 
   let pedido = 0;
@@ -447,15 +459,15 @@ export async function vistaInfracciones() {
   contenedor.append(
     encabezado(
       'Infracciones',
-      'Multas de cada auto y el seguimiento de los pagos',
+      'Cuantas multas tiene cada auto en cada municipio, y si se pagaron',
       h('button', {
         class: 'boton boton--primario',
         type: 'button',
-        onClick: async () => abrirNuevaInfraccion({
+        onClick: async () => abrirCargaInfracciones({
           portales: (await api.portales()).filter((p) => p.activo),
           alGuardar: (d) => navegar(`infracciones/${d}`)
         })
-      }, '➕ Cargar infraccion')
+      }, '➕ Cargar infracciones')
     ),
     h(
       'section',
@@ -466,12 +478,12 @@ export async function vistaInfracciones() {
         h('form', {
           onSubmit: (e) => { e.preventDefault(); sugeridor.cerrar(); irAlDominio(sugeridor.entrada.value); }
         },
-        h('label', { class: 'etiqueta-campo' }, 'Consultar las multas de un auto'),
+        h('label', { class: 'etiqueta-campo' }, 'Ver o consultar las multas de un auto'),
         h('div', { style: 'display:flex;gap:.5rem;align-items:stretch' },
           sugeridor.contenedor,
           h('button', { class: 'boton boton--primario', type: 'submit' }, 'Ver multas'))),
         h('p', { class: 'tenue', style: 'font-size:.85rem;margin:.5rem 0 0' },
-          'Sirve aunque el auto no este cargado: vas a ver los botones para consultarlo en cada pagina.')
+          'Sirve aunque el auto no este cargado: vas a ver los botones para consultarlo en cada municipio.')
       )
     ),
     indicadores,
@@ -490,70 +502,12 @@ export async function vistaInfracciones() {
 }
 
 // ---------------------------------------------------------------------
-// Un dominio: consultar en cada pagina y seguir sus multas
+// Un dominio: un renglon por municipio
 // ---------------------------------------------------------------------
-
-function tarjetaConsultas(datos, recargar, alTenerMultas) {
-  const d = datos.dominio;
-
-  if (!datos.portales.length) {
-    return h(
-      'section',
-      { class: 'tarjeta' },
-      h('div', { class: 'tarjeta__titulo' }, '🔎 Consultar multas'),
-      h('div', { class: 'tarjeta__cuerpo' },
-        vacio('Todavia no hay paginas de consulta cargadas.', '🌐'),
-        h('p', { style: 'text-align:center' },
-          h('a', { class: 'boton', href: '#/infracciones' }, 'Agregar paginas de consulta')))
-    );
-  }
-
-  const registrar = async (portal, resultado) => {
-    try {
-      await api.registrarConsulta(d, portal.id, resultado);
-      if (resultado === 'con_infracciones') alTenerMultas(portal);
-      else avisar(`Anotado: ${formatearDominio(d)} sin multas en ${portal.nombre}.`);
-      recargar();
-    } catch (err) {
-      avisar(err.message, 'error');
-    }
-  };
-
-  const filas = datos.portales.map((portal) => {
-    const ultima = portal.ultima_consulta;
-    const textoUltima = ultima
-      ? `${ultima.resultado === 'sin_infracciones' ? '✅ Sin multas' : '⚠️ Con multas'} · revisado por ${ultima.consultado_por_nombre || 'alguien'} el ${fechaHora(ultima.consultado_en)}`
-      : 'Nadie lo reviso todavia';
-
-    return h(
-      'div',
-      { class: 'portal' },
-      h('div', { class: 'portal__boton' }, botonConsultar(portal, d, 'boton boton--primario')),
-      h('div', { class: 'portal__estado' },
-        h('div', { class: ultima ? '' : 'tenue' }, textoUltima),
-        portal.notas ? h('div', { class: 'mini' }, portal.notas) : null),
-      h(
-        'div',
-        { class: 'portal__acciones' },
-        h('span', { class: 'mini' }, '¿Que encontraste?'),
-        h('button', { class: 'boton boton--chico', type: 'button', onClick: () => registrar(portal, 'sin_infracciones') }, '✅ No tiene'),
-        h('button', { class: 'boton boton--chico', type: 'button', onClick: () => registrar(portal, 'con_infracciones') }, '⚠️ Tiene multas')
-      )
-    );
-  });
-
-  return h(
-    'section',
-    { class: 'tarjeta' },
-    h('div', { class: 'tarjeta__titulo' }, '🔎 Consultar multas',
-      h('span', { class: 'tenue' }, `el boton abre la pagina y copia ${d} para pegarlo`)),
-    h('div', { class: 'tarjeta__cuerpo' }, ...filas)
-  );
-}
 
 function comprobantes(infraccion, recargar) {
   const entrada = h('input', { type: 'file', multiple: true, style: 'display:none' });
-  const boton = h('button', { class: 'boton boton--chico', type: 'button', onClick: () => entrada.click() }, '⬆️ Subir comprobante');
+  const boton = h('button', { class: 'boton boton--chico', type: 'button', onClick: () => entrada.click() }, '⬆️ Comprobante');
 
   entrada.addEventListener('change', async () => {
     if (!entrada.files.length) return;
@@ -567,7 +521,7 @@ function comprobantes(infraccion, recargar) {
     } catch (err) {
       avisar(`${err.message} El archivo no se subio: volve a intentarlo.`, 'error');
       boton.disabled = false;
-      boton.textContent = '⬆️ Subir comprobante';
+      boton.textContent = '⬆️ Comprobante';
     }
     entrada.value = '';
   });
@@ -606,84 +560,129 @@ function comprobantes(infraccion, recargar) {
   return h('div', { class: 'doc-item__archivos', style: 'align-items:center' }, boton, entrada, ...chips);
 }
 
-function tarjetaInfraccion(infraccion, portales, recargarCuandoSePueda, recargar) {
-  // Cada campo se guarda solo, por separado, con la misma cola que el resto.
-  const campoMulta = (etiqueta, control, nombre, extra = {}) =>
-    (extra.ancho ? campoAutoAncho : campoAuto)({
-      etiqueta,
-      control,
-      campo: nombre,
-      operacion: 'editar_infraccion',
-      clave: `infraccion:${infraccion.id}:${nombre}`,
-      // Fechas y monto vacios van como "sin dato"; los textos, vacios.
-      armarArgs: (valor) => ({
-        id: infraccion.id,
-        cambios: { [nombre]: valor === '' && CAMPOS_NULOS.includes(nombre) ? null : valor }
-      }),
-      ...extra
-    });
 
-  const selectorEstado = opciones(h('select', {}), LISTA_ESTADOS, infraccion.estado);
-  const lugares = h('datalist', { id: `lugares-${infraccion.id}` },
-    ...portales.map((p) => h('option', { value: p.nombre })));
-  const textoLugar = (() => {
-    const t = h('input', { value: infraccion.jurisdiccion || '', placeholder: 'Municipio o provincia' });
-    t.setAttribute('list', `lugares-${infraccion.id}`);
-    return t;
-  })();
-  const monto = h('input', { value: montoParaEditar(infraccion.monto), inputMode: 'decimal', placeholder: '85.000' });
-  const descripcion = h('input', { value: infraccion.descripcion || '', placeholder: 'Que fue' });
-  const observaciones = h('textarea', { rows: 2, placeholder: 'Ej. se pago con plan de cuotas, descargo presentado…' });
-  observaciones.value = infraccion.observaciones || '';
+// Junta las paginas de consulta con lo cargado: cada municipio aparece una
+// sola vez, tenga o no infracciones.
+function renglonesPorMunicipio(datos) {
+  const renglones = datos.portales.map((portal) => ({ nombre: portal.nombre, portal, infraccion: null }));
+  for (const infraccion of datos.infracciones) {
+    const mismo = renglones.find((r) =>
+      (infraccion.portal_id && r.portal && r.portal.id === infraccion.portal_id) ||
+      r.nombre.trim().toLowerCase() === infraccion.municipio.trim().toLowerCase());
+    if (mismo && !mismo.infraccion) mismo.infraccion = infraccion;
+    else renglones.push({ nombre: infraccion.municipio, portal: null, infraccion });
+  }
+  // Primero los que tienen algo por resolver, despues el resto.
+  const peso = (r) => (!r.infraccion ? 1 : ['impaga', 'en_gestion'].includes(r.infraccion.estado) ? 0 : 2);
+  return renglones.sort((a, b) => peso(a) - peso(b));
+}
 
-  const borrar = async () => {
-    const texto = `Vas a borrar la infraccion${infraccion.acta ? ` ${infraccion.acta}` : ''} de ${infraccion.jurisdiccion || 'este auto'}. Queda una copia en el historial.`;
-    if (!(await confirmar(texto, { textoBoton: 'Borrar infraccion' }))) return;
+function textoUltimaConsulta(portal) {
+  const ultima = portal && portal.ultima_consulta;
+  if (!ultima) return portal ? 'Nadie lo reviso todavia' : '';
+  return `${ultima.resultado === 'sin_infracciones' ? '✅ Sin multas' : '⚠️ Con multas'} · ${ultima.consultado_por_nombre || 'alguien'}, ${fechaHora(ultima.consultado_en)}`;
+}
+
+function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar }) {
+  const d = datos.dominio;
+  const renglones = renglonesPorMunicipio(datos);
+
+  if (!renglones.length) {
+    return vacio('Todavia no hay municipios. Agrega las paginas de consulta en la solapa Infracciones, o carga un municipio con "Cargar infracciones".', '🌐');
+  }
+
+  const registrar = async (portal, resultado) => {
     try {
-      await api.borrarInfraccion(infraccion.id);
-      avisar('Infraccion borrada.');
-      await refrescarPendientes();
+      await api.registrarConsulta(d, portal.id, resultado);
+      if (resultado === 'con_infracciones') cargar(portal.nombre);
+      else avisar(`Anotado: ${formatearDominio(d)} sin multas en ${portal.nombre}.`);
       recargar();
     } catch (err) {
       avisar(err.message, 'error');
     }
   };
 
+  const campoMulta = (infraccion, control, nombre, extra = {}) =>
+    campoAuto({
+      control,
+      campo: nombre,
+      operacion: 'editar_infraccion',
+      clave: `infraccion:${infraccion.id}:${nombre}`,
+      armarArgs: (valor) => ({
+        id: infraccion.id,
+        cambios: { [nombre]: valor === '' && nombre === 'monto' ? null : valor }
+      }),
+      alConfirmar: recargarCuandoSePueda,
+      ...extra
+    });
+
+  const filas = renglones.map(({ nombre, portal, infraccion }) => {
+    const celdaMunicipio = h('td', {},
+      h('strong', {}, nombre),
+      portal ? h('div', { class: 'mini' }, textoUltimaConsulta(portal)) : null,
+      portal && portal.notas ? h('div', { class: 'mini' }, portal.notas) : null);
+    const celdaConsultar = h('td', {}, portal ? botonConsultar(portal, d, 'boton boton--chico') : h('span', { class: 'mini' }, 'Sin pagina'));
+
+    if (!infraccion) {
+      return h(
+        'tr',
+        { class: 'municipio municipio--vacio' },
+        celdaMunicipio,
+        celdaConsultar,
+        h('td', { colSpan: 4 },
+          h('div', { class: 'municipio__preguntar' },
+            h('span', { class: 'mini' }, '¿Que encontraste?'),
+            h('button', { class: 'boton boton--chico', type: 'button', onClick: () => registrar(portal, 'sin_infracciones') }, '✅ No tiene'),
+            h('button', { class: 'boton boton--chico', type: 'button', onClick: () => registrar(portal, 'con_infracciones') }, '⚠️ Tiene multas'))),
+        h('td', {})
+      );
+    }
+
+    const cantidad = h('input', { type: 'number', min: 1, step: 1, value: String(infraccion.cantidad), inputMode: 'numeric', class: 'municipio__cantidad' });
+    const monto = h('input', { value: montoParaEditar(infraccion.monto), inputMode: 'decimal', placeholder: '—', class: 'municipio__monto' });
+    const selectorEstado = opciones(h('select', {}), LISTA_ESTADOS, infraccion.estado);
+
+    const quitar = async () => {
+      if (!(await confirmar(`Vas a quitar ${nombre} de las infracciones de ${formatearDominio(d)}. Queda una copia en el historial.`, { textoBoton: 'Quitar' }))) return;
+      try {
+        await api.borrarInfraccion(infraccion.id);
+        avisar(`${nombre} quitado.`);
+        recargar();
+      } catch (err) {
+        avisar(err.message, 'error');
+      }
+    };
+
+    return h(
+      'tr',
+      { class: `municipio municipio--${infraccion.estado}` },
+      celdaMunicipio,
+      celdaConsultar,
+      h('td', {}, campoMulta(infraccion, cantidad, 'cantidad', {
+        leerValor: (el) => leerCantidad(el.value),
+        validar: (valor) => (valor === null ? 'Tiene que ser 1 o mas. Si ya no tiene, marcala pagada o quitala.' : '')
+      })),
+      h('td', {}, campoMulta(infraccion, monto, 'monto', {
+        leerValor: (el) => leerMonto(el.value),
+        validar: (valor) => (valor === null ? AYUDA_MONTO : '')
+      })),
+      h('td', {}, campoMulta(infraccion, selectorEstado, 'estado'),
+        infraccion.estado === 'pagada' && infraccion.fecha_pago ? h('div', { class: 'mini' }, `el ${fecha(infraccion.fecha_pago)}`) : null),
+      h('td', {}, comprobantes(infraccion, recargar)),
+      h('td', { class: 'acciones' }, h('button', { class: 'boton boton--chico', type: 'button', title: 'Quitar este municipio', onClick: quitar }, 'Quitar'))
+    );
+  });
+
   return h(
-    'section',
-    { class: `tarjeta infraccion infraccion--${infraccion.estado}` },
+    'div',
+    { class: 'tabla-scroll' },
     h(
-      'div',
-      { class: 'tarjeta__titulo' },
-      etiquetaEstadoInfraccion(infraccion.estado),
-      h('span', {}, [infraccion.jurisdiccion, infraccion.acta && `acta ${infraccion.acta}`].filter(Boolean).join(' · ') || 'Infraccion'),
-      h('strong', {}, pesos(infraccion.monto)),
-      h('span', { class: 'derecha', style: 'display:flex;gap:.5rem;align-items:center' },
-        h('span', { class: 'mini' }, `Cargada por ${infraccion.creado_por_nombre || 'alguien'} el ${fecha(infraccion.creado_en)}`),
-        h('button', { class: 'boton boton--chico boton--peligro', type: 'button', onClick: borrar }, 'Borrar'))
-    ),
-    h(
-      'div',
-      { class: 'tarjeta__cuerpo' },
-      lugares,
-      h(
-        'div',
-        { class: 'campos' },
-        campoMulta('Estado', selectorEstado, 'estado', { alConfirmar: recargarCuandoSePueda }),
-        campoMulta('Monto', monto, 'monto', {
-          leerValor: (el) => { const m = leerMonto(el.value); return m === null ? null : m; },
-          validar: (valor) => (valor === null ? AYUDA_MONTO : ''),
-          alConfirmar: recargarCuandoSePueda
-        }),
-        campoMulta('Fecha de la infraccion', h('input', { type: 'date', value: infraccion.fecha || '' }), 'fecha'),
-        campoMulta('Fecha de pago', h('input', { type: 'date', value: infraccion.fecha_pago || '' }), 'fecha_pago',
-          { ayuda: 'Se completa sola al marcarla pagada' }),
-        campoMulta('Donde', textoLugar, 'jurisdiccion'),
-        campoMulta('Acta', h('input', { value: infraccion.acta || '' }), 'acta'),
-        campoMulta('Que fue', descripcion, 'descripcion', { ancho: true }),
-        campoMulta('Observaciones', observaciones, 'observaciones', { ancho: true })
-      ),
-      comprobantes(infraccion, recargar)
+      'table',
+      { class: 'tabla-municipios' },
+      h('thead', {}, h('tr', {},
+        h('th', {}, 'Municipio'), h('th', {}, 'Consultar'), h('th', {}, 'Infracciones'),
+        h('th', {}, 'Total adeudado'), h('th', {}, 'Estado'), h('th', {}, 'Comprobante'), h('th', {}))),
+      h('tbody', {}, ...filas)
     )
   );
 }
@@ -702,7 +701,7 @@ export async function vistaInfraccionesDominio({ dominio }) {
   async function recargar() {
     const datos = await api.infraccionesDeDominio(d);
     await refrescarPendientes();
-    if (contenedor.isConnected || !contenedor.childNodes.length) vaciar(contenedor).append(...pintar(datos));
+    if (contenedor.isConnected) vaciar(contenedor).append(...pintar(datos));
   }
 
   // Redibujar borraria lo que se este escribiendo: se espera a que no haya
@@ -725,38 +724,39 @@ export async function vistaInfraccionesDominio({ dominio }) {
   function pintar(datos) {
     const v = datos.vehiculo;
     const r = datos.resumen || {};
-    const nueva = (portal) => abrirNuevaInfraccion({
+    const cargar = (municipio = '') => abrirCargaInfracciones({
       dominio: d,
       portales: datos.portales,
-      portalId: portal ? portal.id : null,
+      municipio,
       alGuardar: () => recargar()
     });
 
-    const multas = datos.infracciones.length
-      ? datos.infracciones.map((i) => tarjetaInfraccion(i, datos.portales, recargarCuandoSePueda, recargar))
-      : [vacio(v ? 'Este auto no tiene infracciones cargadas.' : 'Este dominio todavia no esta cargado en el sistema. Si encontras multas, al cargarlas se da de alta.', '✅')];
+    let resumen = 'Infracciones y consulta de multas';
+    if (r.abiertas) resumen = `${r.abiertas} multa(s) por resolver en ${r.municipios_abiertos} municipio(s) · ${pesos(r.monto_abierto)} adeudado`;
+    else if (r.total) resumen = 'Sin multas por resolver';
 
     return [
       encabezado(
         h('span', { style: 'display:inline-flex;gap:.6rem;align-items:center;flex-wrap:wrap' },
           etiquetaDominio(d), v ? descripcionVehiculo(v) || 'Sin marca ni modelo' : 'Infracciones'),
-        r.abiertas
-          ? `${r.abiertas} multa(s) por resolver · ${pesos(r.monto_abierto)} adeudado`
-          : (r.total ? 'Sin multas por resolver' : 'Infracciones y consulta de multas'),
-        h('a', { class: 'boton', href: '#/infracciones' }, '← Todas las infracciones'),
-        v ? h('a', { class: 'boton', href: `#/buscador/${d}` }, 'Ficha del dominio') : null,
-        h('button', { class: 'boton boton--primario', type: 'button', onClick: () => nueva(null) }, '➕ Cargar infraccion')
+        resumen,
+        h('a', { class: 'boton', href: '#/infracciones' }, '← Todos los autos'),
+        v ? h('a', { class: 'boton', href: `#/buscador/${d}` }, 'Ficha del dominio') : null
       ),
-      tarjetaConsultas(datos, recargar, (portal) => {
-        avisar(`Anotado: ${formatearDominio(d)} tiene multas en ${portal.nombre}. Cargalas aca.`);
-        nueva(portal);
-      }),
-      h('h2', { class: 'subtitulo' }, `Multas de este auto (${datos.infracciones.length})`),
-      ...multas
-    ];
+      h(
+        'section',
+        { class: 'tarjeta' },
+        h('div', { class: 'tarjeta__titulo' }, '🚨 Infracciones por municipio',
+          h('span', { class: 'tenue' }, `"Consultar" abre la pagina y copia ${d} para pegarlo`),
+          h('span', { class: 'derecha' },
+            h('button', { class: 'boton boton--primario boton--chico', type: 'button', onClick: () => cargar('') }, '➕ Agregar municipio'))),
+        tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar })
+      ),
+      v ? null : h('p', { class: 'tenue', style: 'font-size:.85rem' },
+        'Este dominio todavia no esta cargado en el sistema. Si le cargas infracciones, se da de alta.')
+    ].filter(Boolean);
   }
 
-  const datos = await api.infraccionesDeDominio(d);
-  contenedor.append(...pintar(datos));
+  contenedor.append(...pintar(await api.infraccionesDeDominio(d)));
   return contenedor;
 }

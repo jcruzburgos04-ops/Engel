@@ -178,21 +178,21 @@ CREATE TABLE IF NOT EXISTS public.portales_infracciones (
   actualizado_en timestamptz NOT NULL DEFAULT now()
 );
 
--- Cada multa, atada al auto por su dominio. Puede ser de un auto vendido,
--- de una permuta o de uno que esta en stock.
+-- Las multas de cada auto, agrupadas por municipio: no se carga una por una,
+-- sino cuantas tiene el dominio en cada lugar. Una fila por auto y municipio.
 CREATE TABLE IF NOT EXISTS public.infracciones (
   id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vehiculo_id     bigint NOT NULL REFERENCES public.vehiculos (id),
   portal_id       bigint REFERENCES public.portales_infracciones (id) ON DELETE SET NULL,
-  -- Donde se labro (municipio, provincia). Queda escrito aunque se borre
-  -- la pagina de consulta.
-  jurisdiccion    text NOT NULL DEFAULT '',
-  acta            text NOT NULL DEFAULT '',
-  fecha           date,
-  descripcion     text NOT NULL DEFAULT '',
+  -- El municipio o provincia. Queda escrito aunque se borre la pagina.
+  jurisdiccion    text NOT NULL
+                  CONSTRAINT infracciones_jurisdiccion_check CHECK (btrim(jurisdiccion) <> ''),
+  cantidad        integer NOT NULL DEFAULT 1
+                  CONSTRAINT infracciones_cantidad_check CHECK (cantidad >= 1),
+  -- Total adeudado en ese municipio, si se sabe.
   monto           numeric(14, 2) CHECK (monto IS NULL OR monto >= 0),
   -- impaga -> en gestion (descargo, plan de pago) -> pagada. Anulada si se
-  -- cayo o prescribio.
+  -- cayeron o prescribieron.
   estado          text NOT NULL DEFAULT 'impaga'
                   CHECK (estado IN ('impaga', 'en_gestion', 'pagada', 'anulada')),
   fecha_pago      date,
@@ -205,8 +205,11 @@ CREATE TABLE IF NOT EXISTS public.infracciones (
 
 CREATE INDEX IF NOT EXISTS idx_infracciones_vehiculo ON public.infracciones (vehiculo_id);
 CREATE INDEX IF NOT EXISTS idx_infracciones_estado ON public.infracciones (estado);
+-- Un mismo municipio no se repite en el mismo auto (sin importar mayusculas).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_infracciones_auto_municipio
+  ON public.infracciones (vehiculo_id, lower(btrim(jurisdiccion)));
 
--- Comprobantes de pago y fotos del acta.
+-- Comprobantes de pago.
 CREATE TABLE IF NOT EXISTS public.infracciones_archivos (
   id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   infraccion_id   bigint NOT NULL REFERENCES public.infracciones (id) ON DELETE CASCADE,

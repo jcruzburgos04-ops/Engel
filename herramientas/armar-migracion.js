@@ -44,7 +44,7 @@ const FUNCIONES = [
   ['04-consultas.sql', 'panel_documentacion'],
   ['04-consultas.sql', 'estadisticas'],
   ['04-consultas.sql', 'exportar_todo'],
-  ['03-funciones.sql', 'guardar_infraccion'],
+  ['03-funciones.sql', 'guardar_infracciones'],
   ['03-funciones.sql', 'registrar_consulta_infracciones'],
   ['04-consultas.sql', 'infracciones_de_dominio'],
   ['04-consultas.sql', 'listar_infracciones']
@@ -53,7 +53,7 @@ const FUNCIONES = [
 // Funciones nuevas que solo puede usar quien inicio sesion.
 const FUNCIONES_NUEVAS = [
   'sugerir_dominios(text, integer)',
-  'guardar_infraccion(jsonb)',
+  'guardar_infracciones(jsonb)',
   'registrar_consulta_infracciones(text, bigint, text)',
   'infracciones_de_dominio(text)',
   'listar_infracciones(text, text)'
@@ -70,7 +70,8 @@ const salida = `-- =============================================================
 --   3. Los estados de la documentacion pasan a ser:
 --      Faltante -> Pedido -> En proceso -> Aprobado.
 --   4. El buscador sugiere dominios mientras se escribe.
---   5. Infracciones: multas de cada auto, paginas de consulta y pagos.
+--   5. Infracciones: cuantas multas tiene cada auto en cada municipio,
+--      paginas de consulta y seguimiento del pago.
 --
 -- Se puede correr aunque ya hayas aplicado alguno: no repite nada.
 -- Al final aparece una tabla con el resultado.
@@ -82,6 +83,86 @@ const salida = `-- =============================================================
 -- 0. Tablas nuevas de infracciones
 -- ---------------------------------------------------------------------
 -- Van antes que las funciones porque algunas las usan.
+
+-- Si ya habias corrido la version anterior de esta actualizacion, las multas
+-- estaban cargadas una por una. Pasan a ser una fila por auto y municipio,
+-- con la cantidad: se suman las de un mismo lugar y el acta, la fecha y la
+-- descripcion quedan escritas en las observaciones.
+DO $infracciones_por_municipio$
+DECLARE
+  grupo record;
+BEGIN
+  IF to_regclass('public.infracciones') IS NULL THEN
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.infracciones ADD COLUMN IF NOT EXISTS cantidad integer NOT NULL DEFAULT 1;
+
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'infracciones' AND column_name = 'acta') THEN
+    EXECUTE $sql$
+      UPDATE public.infracciones SET observaciones = concat_ws(' · ',
+        NULLIF(observaciones, ''),
+        CASE WHEN acta <> '' THEN 'Acta ' || acta END,
+        CASE WHEN fecha IS NOT NULL THEN 'del ' || to_char(fecha, 'DD/MM/YYYY') END,
+        NULLIF(descripcion, ''))
+      WHERE acta <> '' OR fecha IS NOT NULL OR descripcion <> ''
+    $sql$;
+    ALTER TABLE public.infracciones DROP COLUMN acta, DROP COLUMN fecha, DROP COLUMN descripcion;
+  END IF;
+
+  UPDATE public.infracciones SET jurisdiccion = 'Sin especificar' WHERE btrim(jurisdiccion) = '';
+
+  -- Un solo renglon por auto y municipio. Si alguna seguia pendiente, el
+  -- renglon cuenta y suma solo las pendientes; las ya pagadas quedan
+  -- anotadas en las observaciones.
+  FOR grupo IN
+    SELECT vehiculo_id, lower(btrim(jurisdiccion)) AS lugar, min(id) AS queda,
+           CASE WHEN bool_or(estado IN ('impaga', 'en_gestion'))
+                THEN (sum(cantidad) FILTER (WHERE estado IN ('impaga', 'en_gestion')))::integer
+                ELSE sum(cantidad)::integer END AS cantidad,
+           CASE WHEN bool_or(estado IN ('impaga', 'en_gestion'))
+                THEN sum(monto) FILTER (WHERE estado IN ('impaga', 'en_gestion'))
+                ELSE sum(monto) END AS monto,
+           (array_agg(estado ORDER BY CASE estado WHEN 'impaga' THEN 0 WHEN 'en_gestion' THEN 1
+                                                  WHEN 'pagada' THEN 2 ELSE 3 END))[1] AS estado,
+           concat_ws(' | ',
+             string_agg(NULLIF(observaciones, ''), ' | ' ORDER BY id),
+             CASE WHEN bool_or(estado IN ('impaga', 'en_gestion'))
+                       AND count(*) FILTER (WHERE estado NOT IN ('impaga', 'en_gestion')) > 0
+                  THEN 'Ademas: ' || count(*) FILTER (WHERE estado NOT IN ('impaga', 'en_gestion'))
+                       || ' ya pagada(s) o anulada(s)' END) AS observaciones
+    FROM public.infracciones
+    GROUP BY vehiculo_id, lower(btrim(jurisdiccion))
+    HAVING count(*) > 1
+  LOOP
+    UPDATE public.infracciones_archivos a SET infraccion_id = grupo.queda
+    FROM public.infracciones i
+    WHERE a.infraccion_id = i.id AND i.vehiculo_id = grupo.vehiculo_id
+      AND lower(btrim(i.jurisdiccion)) = grupo.lugar AND i.id <> grupo.queda;
+
+    DELETE FROM public.infracciones
+    WHERE vehiculo_id = grupo.vehiculo_id AND lower(btrim(jurisdiccion)) = grupo.lugar AND id <> grupo.queda;
+
+    UPDATE public.infracciones
+    SET cantidad = grupo.cantidad, monto = grupo.monto, estado = grupo.estado,
+        observaciones = COALESCE(grupo.observaciones, '')
+    WHERE id = grupo.queda;
+  END LOOP;
+
+  ALTER TABLE public.infracciones ALTER COLUMN jurisdiccion DROP DEFAULT;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'infracciones_jurisdiccion_check') THEN
+    ALTER TABLE public.infracciones ADD CONSTRAINT infracciones_jurisdiccion_check
+      CHECK (btrim(jurisdiccion) <> '');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'infracciones_cantidad_check') THEN
+    ALTER TABLE public.infracciones ADD CONSTRAINT infracciones_cantidad_check CHECK (cantidad >= 1);
+  END IF;
+END
+$infracciones_por_municipio$;
+
+-- La carga de a una multa ya no se usa.
+DROP FUNCTION IF EXISTS public.guardar_infraccion(jsonb);
 
 ${extraerBloque('01-esquema.sql', 'infracciones')}
 
@@ -197,7 +278,7 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 4 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 5 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
   SELECT 5, 'Sugerencias del buscador',
@@ -210,7 +291,7 @@ SELECT control, estado, detalle FROM (
                       AND tablename IN ('portales_infracciones', 'infracciones',
                                         'infracciones_archivos', 'consultas_infracciones')) = 4
               THEN 'OK' ELSE 'FALTA' END,
-         'nuevo menu para cargar multas y seguir los pagos'
+         'cantidad de multas por municipio y seguimiento del pago'
   UNION ALL
   SELECT 7, 'Tus datos',
          'INFO',

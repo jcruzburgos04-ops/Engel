@@ -157,18 +157,13 @@ export const ESTADOS_DOCUMENTO = {
   aprobado: { texto: 'Aprobado', clase: 'etiqueta--ok', icono: '✅' }
 };
 
-// Orden de seguimiento de una multa.
+// Estados del pago de las infracciones de un auto en un municipio.
 export const ESTADOS_INFRACCION = {
   impaga: { texto: 'Impaga', clase: 'etiqueta--error' },
   en_gestion: { texto: 'En gestion', clase: 'etiqueta--aviso' },
   pagada: { texto: 'Pagada', clase: 'etiqueta--ok' },
   anulada: { texto: 'Anulada', clase: '' }
 };
-
-export function etiquetaEstadoInfraccion(estado) {
-  const info = ESTADOS_INFRACCION[estado] || { texto: estado, clase: '' };
-  return h('span', { class: `etiqueta ${info.clase}` }, info.texto);
-}
 
 // Lee un monto escrito a la argentina: "85.000", "85000,50", "$ 12.500".
 // Devuelve el texto listo para la base ("85000.50"), '' si esta vacio, o

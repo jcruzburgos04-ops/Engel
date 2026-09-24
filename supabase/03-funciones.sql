@@ -54,9 +54,10 @@ $$;
 --   2 = patentes de moto, sin chasis/motor, estados nuevos de documentacion
 --   3 = sugerencias de dominio mientras se escribe en el buscador
 --   4 = infracciones: multas por auto, paginas de consulta y pagos
+--   5 = infracciones por municipio: cantidad por dominio, sin cargar una por una
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 4 $$;
+AS $$ SELECT 5 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -457,30 +458,32 @@ $$;
 -- Infracciones
 -- ---------------------------------------------------------------------
 
--- Carga una multa. Si el dominio todavia no estaba en el sistema (un auto
--- en stock, por ejemplo) se da de alta con los datos que vengan.
-CREATE OR REPLACE FUNCTION public.guardar_infraccion(p_datos jsonb)
-RETURNS bigint
+-- Carga cuantas infracciones tiene un dominio en uno o varios municipios.
+--   {"dominio": "AB123CD", "marca": "...", "modelo": "...",
+--    "filas": [{"municipio": "CABA", "cantidad": 3, "monto": "85000", "estado": "impaga"}, ...]}
+-- Si ese municipio ya estaba cargado para el auto, se actualiza (no se
+-- duplica). Si el dominio no estaba en el sistema (un auto en stock), se da
+-- de alta. Devuelve cuantos municipios se guardaron.
+CREATE OR REPLACE FUNCTION public.guardar_infracciones(p_datos jsonb)
+RETURNS integer
 LANGUAGE plpgsql
 AS $$
 DECLARE
   v_vehiculo bigint;
-  v_portal bigint := NULLIF(p_datos ->> 'portal_id', '')::bigint;
-  v_jurisdiccion text := public.txt(p_datos, 'jurisdiccion', 120);
-  v_monto_texto text := NULLIF(trim(p_datos ->> 'monto'), '');
-  v_estado text := COALESCE(NULLIF(p_datos ->> 'estado', ''), 'impaga');
-  v_id bigint;
+  v_fila jsonb;
+  v_portal bigint;
+  v_municipio text;
+  v_cantidad_texto text;
+  v_monto_texto text;
+  v_estado text;
+  v_guardadas integer := 0;
 BEGIN
   IF NOT public.es_miembro() THEN
     RAISE EXCEPTION 'No tenes permisos para cargar infracciones.' USING ERRCODE = '42501';
   END IF;
 
-  IF v_monto_texto IS NOT NULL AND v_monto_texto !~ '^[0-9]+(\.[0-9]{1,2})?$' THEN
-    RAISE EXCEPTION 'El monto "%" no es un numero valido.', v_monto_texto USING ERRCODE = '22023';
-  END IF;
-
-  IF v_estado NOT IN ('impaga', 'en_gestion', 'pagada', 'anulada') THEN
-    RAISE EXCEPTION 'Estado de infraccion desconocido: %', v_estado USING ERRCODE = '22023';
+  IF jsonb_typeof(p_datos -> 'filas') IS DISTINCT FROM 'array' OR jsonb_array_length(p_datos -> 'filas') = 0 THEN
+    RAISE EXCEPTION 'Indica al menos un municipio con su cantidad de infracciones.' USING ERRCODE = '22023';
   END IF;
 
   -- guardar_vehiculo valida el dominio y no pisa los datos que ya habia.
@@ -490,30 +493,54 @@ BEGIN
     'modelo', p_datos ->> 'modelo'
   ));
 
-  IF v_portal IS NOT NULL AND v_jurisdiccion = '' THEN
-    SELECT nombre INTO v_jurisdiccion FROM public.portales_infracciones WHERE id = v_portal;
-  END IF;
+  FOR v_fila IN SELECT * FROM jsonb_array_elements(p_datos -> 'filas') LOOP
+    v_portal := NULLIF(v_fila ->> 'portal_id', '')::bigint;
+    v_municipio := public.txt(v_fila, 'municipio', 120);
+    v_cantidad_texto := COALESCE(NULLIF(trim(v_fila ->> 'cantidad'), ''), '1');
+    v_monto_texto := NULLIF(trim(v_fila ->> 'monto'), '');
+    v_estado := COALESCE(NULLIF(v_fila ->> 'estado', ''), 'impaga');
 
-  INSERT INTO public.infracciones (
-    vehiculo_id, portal_id, jurisdiccion, acta, fecha, descripcion, monto,
-    estado, fecha_pago, observaciones, creado_por, actualizado_por
-  ) VALUES (
-    v_vehiculo,
-    v_portal,
-    COALESCE(v_jurisdiccion, ''),
-    public.txt(p_datos, 'acta', 80),
-    NULLIF(p_datos ->> 'fecha', '')::date,
-    public.txt(p_datos, 'descripcion', 500),
-    v_monto_texto::numeric,
-    v_estado,
-    NULLIF(p_datos ->> 'fecha_pago', '')::date,
-    public.txt(p_datos, 'observaciones', 1000),
-    auth.uid(),
-    auth.uid()
-  )
-  RETURNING id INTO v_id;
+    -- Con la pagina elegida, el municipio es su nombre; con el nombre
+    -- escrito, se busca si coincide con alguna pagina cargada.
+    IF v_portal IS NOT NULL AND v_municipio = '' THEN
+      SELECT nombre INTO v_municipio FROM public.portales_infracciones WHERE id = v_portal;
+    ELSIF v_portal IS NULL AND v_municipio <> '' THEN
+      SELECT id INTO v_portal FROM public.portales_infracciones
+      WHERE lower(btrim(nombre)) = lower(v_municipio) LIMIT 1;
+    END IF;
 
-  RETURN v_id;
+    IF COALESCE(v_municipio, '') = '' THEN
+      RAISE EXCEPTION 'Falta el municipio en una de las filas.' USING ERRCODE = '22023';
+    END IF;
+    IF v_cantidad_texto !~ '^[0-9]+$' OR v_cantidad_texto::integer < 1 THEN
+      RAISE EXCEPTION 'La cantidad de infracciones en % tiene que ser un numero mayor a cero.', v_municipio
+        USING ERRCODE = '22023';
+    END IF;
+    IF v_monto_texto IS NOT NULL AND v_monto_texto !~ '^[0-9]+(\.[0-9]{1,2})?$' THEN
+      RAISE EXCEPTION 'El monto de % ("%") no es un numero valido.', v_municipio, v_monto_texto
+        USING ERRCODE = '22023';
+    END IF;
+    IF v_estado NOT IN ('impaga', 'en_gestion', 'pagada', 'anulada') THEN
+      RAISE EXCEPTION 'Estado de infraccion desconocido: %', v_estado USING ERRCODE = '22023';
+    END IF;
+
+    INSERT INTO public.infracciones (
+      vehiculo_id, portal_id, jurisdiccion, cantidad, monto, estado, creado_por, actualizado_por
+    ) VALUES (
+      v_vehiculo, v_portal, v_municipio, v_cantidad_texto::integer, v_monto_texto::numeric,
+      v_estado, auth.uid(), auth.uid()
+    )
+    ON CONFLICT (vehiculo_id, lower(btrim(jurisdiccion))) DO UPDATE SET
+      cantidad = EXCLUDED.cantidad,
+      monto = COALESCE(EXCLUDED.monto, public.infracciones.monto),
+      estado = EXCLUDED.estado,
+      portal_id = COALESCE(EXCLUDED.portal_id, public.infracciones.portal_id),
+      actualizado_por = auth.uid();
+
+    v_guardadas := v_guardadas + 1;
+  END LOOP;
+
+  RETURN v_guardadas;
 END;
 $$;
 

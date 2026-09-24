@@ -17,7 +17,7 @@ WITH controles AS (
         AND p.proname IN ('crear_venta','actualizar_venta','venta_completa','listar_ventas',
                           'buscar_dominio','panel_documentacion','estadisticas','es_miembro',
                           'version_esquema','sugerir_dominios',
-                          'infracciones_de_dominio','guardar_infraccion')) AS funciones,
+                          'infracciones_de_dominio','guardar_infracciones')) AS funciones,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'public') AS reglas,
     (SELECT count(*) FROM storage.buckets WHERE id = 'documentacion') AS deposito,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'storage'

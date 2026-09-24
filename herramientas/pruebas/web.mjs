@@ -318,9 +318,9 @@ await p.click('.sugeridor input');
 await p.type('.sugeridor input', 'ab', { delay: 60 });
 await p.waitForSelector('.sugerencia', { timeout: 10000 });
 await p.click('.sugerencia');
-await p.waitForSelector('.portal', { timeout: 15000 });
+await p.waitForSelector('tr.municipio', { timeout: 15000 });
 ok(/#\/infracciones\/AB123CD$/.test(p.url()), 'al elegir la sugerencia abre las multas del auto');
-ok((await p.locator('.portal').count()) === 2, 'hay un boton de consulta por pagina');
+ok((await p.locator('tr.municipio a:has-text("Consultar en")').count()) === 2, 'hay un renglon con boton de consulta por municipio');
 
 // El boton abre la pagina del municipio con la patente ya puesta.
 const [pestanaCaba] = await Promise.all([
@@ -341,63 +341,91 @@ const portapapeles = await p.evaluate(() => navigator.clipboard.readText());
 ok(portapapeles === 'AB123CD', `copia el dominio para pegarlo (portapapeles: "${portapapeles}")`);
 
 // Anotar lo que se encontro.
-await p.locator('.portal', { hasText: 'Provincia' }).locator('button:has-text("No tiene")').click();
-await p.waitForSelector('.portal:has-text("Sin multas")', { timeout: 10000 });
-ok(/revisado por Juan Cruz/.test(await p.locator('.portal', { hasText: 'Provincia' }).innerText()), 'queda anotado quien reviso y que no tenia multas');
+const renglon = (nombre) => p.locator('tr.municipio', { has: p.locator(`strong:text-is("${nombre}")`) });
+await renglon('Provincia').locator('button:has-text("No tiene")').click();
+await p.waitForSelector('tr.municipio:has-text("Sin multas")', { timeout: 10000 });
+ok(/Juan Cruz/.test(await renglon('Provincia').innerText()), 'queda anotado quien reviso y que no tenia multas');
 
-await p.locator('.portal', { hasText: 'CABA' }).locator('button:has-text("Tiene multas")').click();
-await p.waitForSelector('.modal', { timeout: 10000 });
-ok((await p.locator('.modal select').first().locator('option:checked').innerText()) === 'CABA', 'al marcar que tiene multas abre la carga con CABA elegido');
-await p.locator('.modal .campo', { hasText: 'Monto' }).locator('input').fill('85.000');
-await p.locator('.modal .campo', { hasText: 'Acta' }).locator('input').fill('Q-777');
-await p.click('.modal__pie button:has-text("Guardar infraccion")');
-await p.waitForSelector('.infraccion', { timeout: 15000 });
-const encabezadoMultas = await p.locator('.encabezado').innerText();
-ok(/1 multa\(s\) por resolver/.test(encabezadoMultas) && /85\.000/.test(encabezadoMultas), 'muestra cuanto se debe');
+// "Tiene" abre la carga con el municipio ya puesto: se pone la cantidad y
+// se suma otro municipio en el mismo paso.
+await renglon('CABA').locator('button:has-text("Tiene multas")').click();
+await p.waitForSelector('.modal .carga__fila', { timeout: 10000 });
+ok((await p.locator('.modal .carga__municipio').first().inputValue()) === 'CABA', 'al marcar que tiene multas abre la carga con CABA puesto');
+await p.locator('.modal .carga__cantidad').first().fill('3');
+await p.locator('.modal .carga__monto').first().fill('85.000');
+await p.click('.modal button:has-text("Otro municipio")');
+await p.locator('.modal .carga__municipio').nth(1).fill('Pilar');
+await p.locator('.modal .carga__cantidad').nth(1).fill('2');
+await p.click('.modal__pie button:has-text("Guardar")');
+await p.waitForSelector('.modal', { state: 'detached', timeout: 15000 });
+await p.waitForSelector('tr.municipio:has(strong:text-is("Pilar"))', { timeout: 15000 });
+const resumenMultas = await p.locator('.encabezado').innerText();
+ok(/5 multa\(s\) por resolver en 2 municipio\(s\)/.test(resumenMultas) && /85\.000/.test(resumenMultas),
+  `muestra cuantas hay y cuanto se debe (${resumenMultas.split('\n')[1] || ''})`);
 await p.waitForTimeout(500);
-ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '1', 'el menu avisa que hay una multa por resolver');
+ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '5', 'el menu cuenta las multas por resolver');
 await captura(p, '28-infracciones-auto');
 
-// Un monto mal escrito no se manda.
-const montoInline = p.locator('.infraccion .campo', { hasText: 'Monto' }).locator('input');
-await montoInline.fill('mucho');
-await montoInline.blur();
-await p.waitForSelector('.infraccion .autoguardado__marca--error', { timeout: 5000 });
-ok(true, 'un monto mal escrito avisa y no se guarda');
-await montoInline.fill('90.000,50');
-await montoInline.blur();
-await p.waitForSelector('.infraccion .autoguardado__marca--ok', { timeout: 10000 });
-ok(true, 'el monto corregido se guarda solo');
+// Cantidad invalida: avisa y no se manda. Corregida, se guarda sola.
+const cantidadCaba = renglon('CABA').locator('input.municipio__cantidad');
+await cantidadCaba.fill('0');
+await cantidadCaba.blur();
+await p.waitForSelector('tr.municipio .autoguardado__marca--error', { timeout: 5000 });
+ok(true, 'una cantidad en cero avisa y no se guarda');
+await cantidadCaba.fill('4');
+await cantidadCaba.blur();
+await p.waitForSelector('tr.municipio .autoguardado__marca--ok', { timeout: 10000 });
+ok(true, 'la cantidad corregida se guarda sola');
 
-// Marcarla pagada: se guarda sola y anota la fecha de pago.
-await p.locator('.infraccion .campo', { hasText: 'Estado' }).locator('select').selectOption('pagada');
-await p.waitForSelector('.infraccion--pagada', { timeout: 15000 });
-const hoyIso = await p.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
-const fechaPago = await p.locator('.infraccion .campo', { hasText: 'Fecha de pago' }).locator('input').inputValue();
-ok(fechaPago === hoyIso, `al marcarla pagada anota la fecha de pago (${fechaPago})`);
+const montoPilar = renglon('Pilar').locator('input.municipio__monto');
+await montoPilar.fill('12.000,50');
+await montoPilar.blur();
+await p.waitForTimeout(1500);
+
+// Marcar CABA pagada: se guarda sola y anota la fecha de pago.
+await renglon('CABA').locator('select').selectOption('pagada');
+await p.waitForSelector('tr.municipio--pagada', { timeout: 15000 });
+const hoyTexto = await p.evaluate(() => new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }));
+ok((await renglon('CABA').innerText()).includes(`el ${hoyTexto}`), 'al marcarla pagada anota la fecha de pago');
 
 // Comprobante de pago.
 const comprobante = `${SALIDA}/comprobante-prueba.pdf`;
 fs.writeFileSync(comprobante, '%PDF-1.4 comprobante');
-await p.locator('.infraccion input[type=file]').setInputFiles(comprobante);
-await p.waitForSelector('.infraccion .archivo', { timeout: 15000 });
-ok(/comprobante-prueba\.pdf/.test(await p.locator('.infraccion').innerText()), 'el comprobante queda cargado');
+await renglon('CABA').locator('input[type=file]').setInputFiles(comprobante);
+await p.waitForSelector('tr.municipio .archivo', { timeout: 15000 });
+ok(/comprobante-prueba\.pdf/.test(await renglon('CABA').innerText()), 'el comprobante queda cargado');
 
 // Despues de recargar sigue todo.
 await p.reload({ waitUntil: 'networkidle' });
-await p.waitForSelector('.infraccion', { timeout: 15000 });
-const montoGuardado = await p.locator('.infraccion .campo', { hasText: 'Monto' }).locator('input').inputValue();
-ok(montoGuardado === '90.000,50', `el monto persiste tras recargar (${montoGuardado})`);
-ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').count()) === 0, 'pagada, deja de figurar en el menu');
+await p.waitForSelector('tr.municipio', { timeout: 15000 });
+ok((await renglon('CABA').locator('input.municipio__cantidad').inputValue()) === '4', 'la cantidad persiste tras recargar');
+ok((await renglon('Pilar').locator('input.municipio__monto').inputValue()) === '12.000,50', 'el monto persiste tras recargar');
+ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '2', 'pagada CABA, el menu cuenta solo las de Pilar');
 
-// El listado general.
+// El listado general: un renglon por auto con sus municipios.
 await p.click('a.menu__link[href="#/infracciones"]');
 await p.waitForSelector('#paginas-de-consulta', { timeout: 15000 });
-ok(/No hay infracciones con ese filtro/.test(await p.locator('.contenido').innerText()), 'el listado de por resolver queda vacio');
-await p.locator('.tarjeta', { hasText: 'Seguimiento' }).locator('select').selectOption('todas');
-await p.waitForSelector('.tarjeta:has-text("Seguimiento") td:has-text("Q-777")', { timeout: 10000 });
-ok(true, 'con "Todas" aparece la multa pagada');
+const filaAuto = await p.locator('.tarjeta', { hasText: 'Seguimiento' }).locator('tbody tr').first().innerText();
+ok(/CABA · 4/.test(filaAuto) && /Pilar · 2/.test(filaAuto), `el listado muestra los municipios del auto (${filaAuto.replace(/\s+/g, ' ').slice(0, 60)})`);
 await captura(p, '29-infracciones');
+
+// Cargar un auto en stock directamente desde el listado.
+await p.click('button:has-text("Cargar infracciones")');
+await p.waitForSelector('.modal .carga__fila');
+await p.locator('.modal .sugeridor input').fill('AD111AA');
+await p.locator('.modal .carga__municipio').first().fill('Tigre');
+await p.locator('.modal .carga__cantidad').first().fill('1');
+await p.click('.modal__pie button:has-text("Guardar")');
+await p.waitForSelector('tr.municipio:has(strong:text-is("Tigre"))', { timeout: 15000 });
+ok(/#\/infracciones\/AD111AA$/.test(p.url()), 'un dominio que no estaba cargado se da de alta con sus multas');
+
+// Quitar un municipio cargado por error.
+await p.goto(`${BASE}/#/infracciones/AB123CD`);
+await p.waitForSelector('tr.municipio', { timeout: 15000 });
+await renglon('Pilar').locator('button:has-text("Quitar")').click();
+await p.click('.modal__pie button:has-text("Quitar")');
+await p.waitForFunction(() => ![...document.querySelectorAll('tr.municipio strong')].some((e) => e.textContent === 'Pilar'), null, { timeout: 10000 });
+ok(true, 'se puede quitar un municipio');
 
 // ---------------------------------------------------------------------
 console.log('12. Si la base quedo vieja, la web lo dice');

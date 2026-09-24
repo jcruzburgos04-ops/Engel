@@ -9,7 +9,8 @@
 --   3. Los estados de la documentacion pasan a ser:
 --      Faltante -> Pedido -> En proceso -> Aprobado.
 --   4. El buscador sugiere dominios mientras se escribe.
---   5. Infracciones: multas de cada auto, paginas de consulta y pagos.
+--   5. Infracciones: cuantas multas tiene cada auto en cada municipio,
+--      paginas de consulta y seguimiento del pago.
 --
 -- Se puede correr aunque ya hayas aplicado alguno: no repite nada.
 -- Al final aparece una tabla con el resultado.
@@ -21,6 +22,86 @@
 -- 0. Tablas nuevas de infracciones
 -- ---------------------------------------------------------------------
 -- Van antes que las funciones porque algunas las usan.
+
+-- Si ya habias corrido la version anterior de esta actualizacion, las multas
+-- estaban cargadas una por una. Pasan a ser una fila por auto y municipio,
+-- con la cantidad: se suman las de un mismo lugar y el acta, la fecha y la
+-- descripcion quedan escritas en las observaciones.
+DO $infracciones_por_municipio$
+DECLARE
+  grupo record;
+BEGIN
+  IF to_regclass('public.infracciones') IS NULL THEN
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.infracciones ADD COLUMN IF NOT EXISTS cantidad integer NOT NULL DEFAULT 1;
+
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'infracciones' AND column_name = 'acta') THEN
+    EXECUTE $sql$
+      UPDATE public.infracciones SET observaciones = concat_ws(' · ',
+        NULLIF(observaciones, ''),
+        CASE WHEN acta <> '' THEN 'Acta ' || acta END,
+        CASE WHEN fecha IS NOT NULL THEN 'del ' || to_char(fecha, 'DD/MM/YYYY') END,
+        NULLIF(descripcion, ''))
+      WHERE acta <> '' OR fecha IS NOT NULL OR descripcion <> ''
+    $sql$;
+    ALTER TABLE public.infracciones DROP COLUMN acta, DROP COLUMN fecha, DROP COLUMN descripcion;
+  END IF;
+
+  UPDATE public.infracciones SET jurisdiccion = 'Sin especificar' WHERE btrim(jurisdiccion) = '';
+
+  -- Un solo renglon por auto y municipio. Si alguna seguia pendiente, el
+  -- renglon cuenta y suma solo las pendientes; las ya pagadas quedan
+  -- anotadas en las observaciones.
+  FOR grupo IN
+    SELECT vehiculo_id, lower(btrim(jurisdiccion)) AS lugar, min(id) AS queda,
+           CASE WHEN bool_or(estado IN ('impaga', 'en_gestion'))
+                THEN (sum(cantidad) FILTER (WHERE estado IN ('impaga', 'en_gestion')))::integer
+                ELSE sum(cantidad)::integer END AS cantidad,
+           CASE WHEN bool_or(estado IN ('impaga', 'en_gestion'))
+                THEN sum(monto) FILTER (WHERE estado IN ('impaga', 'en_gestion'))
+                ELSE sum(monto) END AS monto,
+           (array_agg(estado ORDER BY CASE estado WHEN 'impaga' THEN 0 WHEN 'en_gestion' THEN 1
+                                                  WHEN 'pagada' THEN 2 ELSE 3 END))[1] AS estado,
+           concat_ws(' | ',
+             string_agg(NULLIF(observaciones, ''), ' | ' ORDER BY id),
+             CASE WHEN bool_or(estado IN ('impaga', 'en_gestion'))
+                       AND count(*) FILTER (WHERE estado NOT IN ('impaga', 'en_gestion')) > 0
+                  THEN 'Ademas: ' || count(*) FILTER (WHERE estado NOT IN ('impaga', 'en_gestion'))
+                       || ' ya pagada(s) o anulada(s)' END) AS observaciones
+    FROM public.infracciones
+    GROUP BY vehiculo_id, lower(btrim(jurisdiccion))
+    HAVING count(*) > 1
+  LOOP
+    UPDATE public.infracciones_archivos a SET infraccion_id = grupo.queda
+    FROM public.infracciones i
+    WHERE a.infraccion_id = i.id AND i.vehiculo_id = grupo.vehiculo_id
+      AND lower(btrim(i.jurisdiccion)) = grupo.lugar AND i.id <> grupo.queda;
+
+    DELETE FROM public.infracciones
+    WHERE vehiculo_id = grupo.vehiculo_id AND lower(btrim(jurisdiccion)) = grupo.lugar AND id <> grupo.queda;
+
+    UPDATE public.infracciones
+    SET cantidad = grupo.cantidad, monto = grupo.monto, estado = grupo.estado,
+        observaciones = COALESCE(grupo.observaciones, '')
+    WHERE id = grupo.queda;
+  END LOOP;
+
+  ALTER TABLE public.infracciones ALTER COLUMN jurisdiccion DROP DEFAULT;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'infracciones_jurisdiccion_check') THEN
+    ALTER TABLE public.infracciones ADD CONSTRAINT infracciones_jurisdiccion_check
+      CHECK (btrim(jurisdiccion) <> '');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'infracciones_cantidad_check') THEN
+    ALTER TABLE public.infracciones ADD CONSTRAINT infracciones_cantidad_check CHECK (cantidad >= 1);
+  END IF;
+END
+$infracciones_por_municipio$;
+
+-- La carga de a una multa ya no se usa.
+DROP FUNCTION IF EXISTS public.guardar_infraccion(jsonb);
 
 -- ---------------------------------------------------------------------
 -- Infracciones (multas de transito) de cada auto
@@ -40,21 +121,21 @@ CREATE TABLE IF NOT EXISTS public.portales_infracciones (
   actualizado_en timestamptz NOT NULL DEFAULT now()
 );
 
--- Cada multa, atada al auto por su dominio. Puede ser de un auto vendido,
--- de una permuta o de uno que esta en stock.
+-- Las multas de cada auto, agrupadas por municipio: no se carga una por una,
+-- sino cuantas tiene el dominio en cada lugar. Una fila por auto y municipio.
 CREATE TABLE IF NOT EXISTS public.infracciones (
   id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vehiculo_id     bigint NOT NULL REFERENCES public.vehiculos (id),
   portal_id       bigint REFERENCES public.portales_infracciones (id) ON DELETE SET NULL,
-  -- Donde se labro (municipio, provincia). Queda escrito aunque se borre
-  -- la pagina de consulta.
-  jurisdiccion    text NOT NULL DEFAULT '',
-  acta            text NOT NULL DEFAULT '',
-  fecha           date,
-  descripcion     text NOT NULL DEFAULT '',
+  -- El municipio o provincia. Queda escrito aunque se borre la pagina.
+  jurisdiccion    text NOT NULL
+                  CONSTRAINT infracciones_jurisdiccion_check CHECK (btrim(jurisdiccion) <> ''),
+  cantidad        integer NOT NULL DEFAULT 1
+                  CONSTRAINT infracciones_cantidad_check CHECK (cantidad >= 1),
+  -- Total adeudado en ese municipio, si se sabe.
   monto           numeric(14, 2) CHECK (monto IS NULL OR monto >= 0),
   -- impaga -> en gestion (descargo, plan de pago) -> pagada. Anulada si se
-  -- cayo o prescribio.
+  -- cayeron o prescribieron.
   estado          text NOT NULL DEFAULT 'impaga'
                   CHECK (estado IN ('impaga', 'en_gestion', 'pagada', 'anulada')),
   fecha_pago      date,
@@ -67,8 +148,11 @@ CREATE TABLE IF NOT EXISTS public.infracciones (
 
 CREATE INDEX IF NOT EXISTS idx_infracciones_vehiculo ON public.infracciones (vehiculo_id);
 CREATE INDEX IF NOT EXISTS idx_infracciones_estado ON public.infracciones (estado);
+-- Un mismo municipio no se repite en el mismo auto (sin importar mayusculas).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_infracciones_auto_municipio
+  ON public.infracciones (vehiculo_id, lower(btrim(jurisdiccion)));
 
--- Comprobantes de pago y fotos del acta.
+-- Comprobantes de pago.
 CREATE TABLE IF NOT EXISTS public.infracciones_archivos (
   id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   infraccion_id   bigint NOT NULL REFERENCES public.infracciones (id) ON DELETE CASCADE,
@@ -105,7 +189,7 @@ CREATE INDEX IF NOT EXISTS idx_consultas_infracciones
 
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 4 $$;
+AS $$ SELECT 5 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -658,7 +742,7 @@ AS $$
                                 JOIN public.ventas v ON v.id = d.venta_id
                                WHERE d.estado <> 'aprobado' AND v.estado <> 'cancelado'),
     -- Multas que todavia hay que pagar o resolver.
-    'infracciones_abiertas', (SELECT count(*) FROM public.infracciones
+    'infracciones_abiertas', (SELECT COALESCE(sum(cantidad), 0) FROM public.infracciones
                                 WHERE estado IN ('impaga', 'en_gestion')),
     'infracciones_monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM public.infracciones
                                      WHERE estado IN ('impaga', 'en_gestion')),
@@ -695,28 +779,26 @@ AS $$
   );
 $$;
 
-CREATE OR REPLACE FUNCTION public.guardar_infraccion(p_datos jsonb)
-RETURNS bigint
+CREATE OR REPLACE FUNCTION public.guardar_infracciones(p_datos jsonb)
+RETURNS integer
 LANGUAGE plpgsql
 AS $$
 DECLARE
   v_vehiculo bigint;
-  v_portal bigint := NULLIF(p_datos ->> 'portal_id', '')::bigint;
-  v_jurisdiccion text := public.txt(p_datos, 'jurisdiccion', 120);
-  v_monto_texto text := NULLIF(trim(p_datos ->> 'monto'), '');
-  v_estado text := COALESCE(NULLIF(p_datos ->> 'estado', ''), 'impaga');
-  v_id bigint;
+  v_fila jsonb;
+  v_portal bigint;
+  v_municipio text;
+  v_cantidad_texto text;
+  v_monto_texto text;
+  v_estado text;
+  v_guardadas integer := 0;
 BEGIN
   IF NOT public.es_miembro() THEN
     RAISE EXCEPTION 'No tenes permisos para cargar infracciones.' USING ERRCODE = '42501';
   END IF;
 
-  IF v_monto_texto IS NOT NULL AND v_monto_texto !~ '^[0-9]+(\.[0-9]{1,2})?$' THEN
-    RAISE EXCEPTION 'El monto "%" no es un numero valido.', v_monto_texto USING ERRCODE = '22023';
-  END IF;
-
-  IF v_estado NOT IN ('impaga', 'en_gestion', 'pagada', 'anulada') THEN
-    RAISE EXCEPTION 'Estado de infraccion desconocido: %', v_estado USING ERRCODE = '22023';
+  IF jsonb_typeof(p_datos -> 'filas') IS DISTINCT FROM 'array' OR jsonb_array_length(p_datos -> 'filas') = 0 THEN
+    RAISE EXCEPTION 'Indica al menos un municipio con su cantidad de infracciones.' USING ERRCODE = '22023';
   END IF;
 
   -- guardar_vehiculo valida el dominio y no pisa los datos que ya habia.
@@ -726,30 +808,54 @@ BEGIN
     'modelo', p_datos ->> 'modelo'
   ));
 
-  IF v_portal IS NOT NULL AND v_jurisdiccion = '' THEN
-    SELECT nombre INTO v_jurisdiccion FROM public.portales_infracciones WHERE id = v_portal;
-  END IF;
+  FOR v_fila IN SELECT * FROM jsonb_array_elements(p_datos -> 'filas') LOOP
+    v_portal := NULLIF(v_fila ->> 'portal_id', '')::bigint;
+    v_municipio := public.txt(v_fila, 'municipio', 120);
+    v_cantidad_texto := COALESCE(NULLIF(trim(v_fila ->> 'cantidad'), ''), '1');
+    v_monto_texto := NULLIF(trim(v_fila ->> 'monto'), '');
+    v_estado := COALESCE(NULLIF(v_fila ->> 'estado', ''), 'impaga');
 
-  INSERT INTO public.infracciones (
-    vehiculo_id, portal_id, jurisdiccion, acta, fecha, descripcion, monto,
-    estado, fecha_pago, observaciones, creado_por, actualizado_por
-  ) VALUES (
-    v_vehiculo,
-    v_portal,
-    COALESCE(v_jurisdiccion, ''),
-    public.txt(p_datos, 'acta', 80),
-    NULLIF(p_datos ->> 'fecha', '')::date,
-    public.txt(p_datos, 'descripcion', 500),
-    v_monto_texto::numeric,
-    v_estado,
-    NULLIF(p_datos ->> 'fecha_pago', '')::date,
-    public.txt(p_datos, 'observaciones', 1000),
-    auth.uid(),
-    auth.uid()
-  )
-  RETURNING id INTO v_id;
+    -- Con la pagina elegida, el municipio es su nombre; con el nombre
+    -- escrito, se busca si coincide con alguna pagina cargada.
+    IF v_portal IS NOT NULL AND v_municipio = '' THEN
+      SELECT nombre INTO v_municipio FROM public.portales_infracciones WHERE id = v_portal;
+    ELSIF v_portal IS NULL AND v_municipio <> '' THEN
+      SELECT id INTO v_portal FROM public.portales_infracciones
+      WHERE lower(btrim(nombre)) = lower(v_municipio) LIMIT 1;
+    END IF;
 
-  RETURN v_id;
+    IF COALESCE(v_municipio, '') = '' THEN
+      RAISE EXCEPTION 'Falta el municipio en una de las filas.' USING ERRCODE = '22023';
+    END IF;
+    IF v_cantidad_texto !~ '^[0-9]+$' OR v_cantidad_texto::integer < 1 THEN
+      RAISE EXCEPTION 'La cantidad de infracciones en % tiene que ser un numero mayor a cero.', v_municipio
+        USING ERRCODE = '22023';
+    END IF;
+    IF v_monto_texto IS NOT NULL AND v_monto_texto !~ '^[0-9]+(\.[0-9]{1,2})?$' THEN
+      RAISE EXCEPTION 'El monto de % ("%") no es un numero valido.', v_municipio, v_monto_texto
+        USING ERRCODE = '22023';
+    END IF;
+    IF v_estado NOT IN ('impaga', 'en_gestion', 'pagada', 'anulada') THEN
+      RAISE EXCEPTION 'Estado de infraccion desconocido: %', v_estado USING ERRCODE = '22023';
+    END IF;
+
+    INSERT INTO public.infracciones (
+      vehiculo_id, portal_id, jurisdiccion, cantidad, monto, estado, creado_por, actualizado_por
+    ) VALUES (
+      v_vehiculo, v_portal, v_municipio, v_cantidad_texto::integer, v_monto_texto::numeric,
+      v_estado, auth.uid(), auth.uid()
+    )
+    ON CONFLICT (vehiculo_id, lower(btrim(jurisdiccion))) DO UPDATE SET
+      cantidad = EXCLUDED.cantidad,
+      monto = COALESCE(EXCLUDED.monto, public.infracciones.monto),
+      estado = EXCLUDED.estado,
+      portal_id = COALESCE(EXCLUDED.portal_id, public.infracciones.portal_id),
+      actualizado_por = auth.uid();
+
+    v_guardadas := v_guardadas + 1;
+  END LOOP;
+
+  RETURN v_guardadas;
 END;
 $$;
 
@@ -788,11 +894,12 @@ AS $$
                    'anio', v.anio, 'tenencia', v.tenencia) FROM v),
     'infracciones', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
-        'id', i.id, 'portal_id', i.portal_id, 'jurisdiccion', i.jurisdiccion,
-        'acta', i.acta, 'fecha', i.fecha, 'descripcion', i.descripcion,
-        'monto', i.monto, 'estado', i.estado, 'fecha_pago', i.fecha_pago,
-        'observaciones', i.observaciones, 'creado_en', i.creado_en,
-        'creado_por_nombre', (SELECT nombre FROM public.perfiles p WHERE p.id = i.creado_por),
+        'id', i.id, 'portal_id', i.portal_id, 'municipio', i.jurisdiccion,
+        'cantidad', i.cantidad, 'monto', i.monto, 'estado', i.estado,
+        'fecha_pago', i.fecha_pago, 'observaciones', i.observaciones,
+        'actualizado_en', i.actualizado_en,
+        'actualizado_por_nombre', (SELECT nombre FROM public.perfiles p
+                                    WHERE p.id = COALESCE(i.actualizado_por, i.creado_por)),
         'archivos', COALESCE((
           SELECT jsonb_agg(jsonb_build_object(
             'id', a.id, 'nombre_original', a.nombre_original, 'ruta', a.ruta,
@@ -800,8 +907,7 @@ AS $$
           ) ORDER BY a.id DESC)
           FROM public.infracciones_archivos a WHERE a.infraccion_id = i.id
         ), '[]'::jsonb)
-      ) ORDER BY CASE WHEN i.estado IN ('impaga', 'en_gestion') THEN 0 ELSE 1 END,
-                 i.fecha DESC NULLS LAST, i.id DESC)
+      ) ORDER BY CASE WHEN i.estado IN ('impaga', 'en_gestion') THEN 0 ELSE 1 END, i.jurisdiccion)
       FROM i
     ), '[]'::jsonb),
     'portales', COALESCE((
@@ -818,10 +924,10 @@ AS $$
       FROM public.portales_infracciones po WHERE po.activo
     ), '[]'::jsonb),
     'resumen', jsonb_build_object(
-      'abiertas', (SELECT count(*) FROM i WHERE estado IN ('impaga', 'en_gestion')),
+      'abiertas', (SELECT COALESCE(sum(cantidad), 0) FROM i WHERE estado IN ('impaga', 'en_gestion')),
       'monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM i WHERE estado IN ('impaga', 'en_gestion')),
-      'pagadas', (SELECT count(*) FROM i WHERE estado = 'pagada'),
-      'total', (SELECT count(*) FROM i)
+      'municipios_abiertos', (SELECT count(*) FROM i WHERE estado IN ('impaga', 'en_gestion')),
+      'total', (SELECT COALESCE(sum(cantidad), 0) FROM i)
     )
   );
 $$;
@@ -831,41 +937,50 @@ RETURNS jsonb
 LANGUAGE sql STABLE
 AS $$
   WITH base AS (
-    SELECT i.*, v.dominio, v.marca, v.modelo, v.anio
-    FROM public.infracciones i JOIN public.vehiculos v ON v.id = i.vehiculo_id
-    WHERE (public.normalizar_dominio(p_q) = ''
-           OR v.dominio LIKE '%' || public.normalizar_dominio(p_q) || '%'
-           OR i.jurisdiccion ILIKE '%' || btrim(COALESCE(p_q, '')) || '%'
-           OR i.acta ILIKE '%' || btrim(COALESCE(p_q, '')) || '%')
+    SELECT i.*, (i.estado IN ('impaga', 'en_gestion')) AS abierta
+    FROM public.infracciones i
   ),
-  filtradas AS (
-    SELECT * FROM base
-    WHERE CASE COALESCE(NULLIF(p_filtro, ''), 'abiertas')
-            WHEN 'abiertas' THEN estado IN ('impaga', 'en_gestion')
-            WHEN 'impagas' THEN estado = 'impaga'
-            WHEN 'pagadas' THEN estado = 'pagada'
-            ELSE true
-          END
+  autos AS (
+    SELECT
+      v.id, v.dominio, v.marca, v.modelo, v.anio,
+      COALESCE(sum(b.cantidad) FILTER (WHERE b.abierta), 0) AS abiertas,
+      COALESCE(sum(b.monto) FILTER (WHERE b.abierta), 0) AS monto_abierto,
+      sum(b.cantidad) AS total,
+      max(b.actualizado_en) AS actualizado_en,
+      jsonb_agg(jsonb_build_object(
+        'municipio', b.jurisdiccion, 'cantidad', b.cantidad,
+        'monto', b.monto, 'estado', b.estado
+      ) ORDER BY b.abierta DESC, b.jurisdiccion) AS municipios
+    FROM base b JOIN public.vehiculos v ON v.id = b.vehiculo_id
+    GROUP BY v.id
+  ),
+  buscados AS (
+    SELECT * FROM autos a
+    WHERE btrim(COALESCE(p_q, '')) = ''
+       OR (public.normalizar_dominio(p_q) <> '' AND a.dominio LIKE '%' || public.normalizar_dominio(p_q) || '%')
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(a.municipios) m
+                   WHERE m ->> 'municipio' ILIKE '%' || btrim(p_q) || '%')
   )
   SELECT jsonb_build_object(
     'filas', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
-        'id', f.id, 'dominio', f.dominio,
-        'vehiculo', NULLIF(btrim(concat_ws(' ', f.marca, f.modelo, f.anio::text)), ''),
-        'jurisdiccion', f.jurisdiccion, 'acta', f.acta, 'fecha', f.fecha,
-        'descripcion', f.descripcion, 'monto', f.monto, 'estado', f.estado,
-        'fecha_pago', f.fecha_pago,
-        'archivos', (SELECT count(*) FROM public.infracciones_archivos a WHERE a.infraccion_id = f.id)
-      ) ORDER BY CASE WHEN f.estado IN ('impaga', 'en_gestion') THEN 0 ELSE 1 END,
-                 f.fecha DESC NULLS LAST, f.id DESC)
-      FROM filtradas f
+        'dominio', a.dominio,
+        'vehiculo', NULLIF(btrim(concat_ws(' ', a.marca, a.modelo, a.anio::text)), ''),
+        'abiertas', a.abiertas, 'monto_abierto', a.monto_abierto, 'total', a.total,
+        'municipios', a.municipios, 'actualizado_en', a.actualizado_en
+      ) ORDER BY (a.abiertas > 0) DESC, a.abiertas DESC, a.dominio)
+      FROM buscados a
+      WHERE CASE COALESCE(NULLIF(p_filtro, ''), 'abiertas')
+              WHEN 'abiertas' THEN a.abiertas > 0
+              WHEN 'pagadas' THEN a.abiertas = 0
+              ELSE true
+            END
     ), '[]'::jsonb),
     'resumen', jsonb_build_object(
-      'abiertas', (SELECT count(*) FROM base WHERE estado IN ('impaga', 'en_gestion')),
-      'monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM base WHERE estado IN ('impaga', 'en_gestion')),
-      'autos_con_abiertas', (SELECT count(DISTINCT vehiculo_id) FROM base WHERE estado IN ('impaga', 'en_gestion')),
-      'pagadas', (SELECT count(*) FROM base WHERE estado = 'pagada'),
-      'total', (SELECT count(*) FROM base)
+      'abiertas', (SELECT COALESCE(sum(abiertas), 0) FROM buscados),
+      'monto_abierto', (SELECT COALESCE(sum(monto_abierto), 0) FROM buscados),
+      'autos_con_abiertas', (SELECT count(*) FROM buscados WHERE abiertas > 0),
+      'autos_al_dia', (SELECT count(*) FROM buscados WHERE abiertas = 0)
     )
   );
 $$;
@@ -1040,8 +1155,8 @@ REVOKE ALL ON public.portales_infracciones, public.infracciones,
 
 REVOKE ALL ON FUNCTION public.sugerir_dominios(text, integer) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.sugerir_dominios(text, integer) TO authenticated;
-REVOKE ALL ON FUNCTION public.guardar_infraccion(jsonb) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.guardar_infraccion(jsonb) TO authenticated;
+REVOKE ALL ON FUNCTION public.guardar_infracciones(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.guardar_infracciones(jsonb) TO authenticated;
 REVOKE ALL ON FUNCTION public.registrar_consulta_infracciones(text, bigint, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.registrar_consulta_infracciones(text, bigint, text) TO authenticated;
 REVOKE ALL ON FUNCTION public.infracciones_de_dominio(text) FROM PUBLIC, anon;
@@ -1078,7 +1193,7 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 4 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 5 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
   SELECT 5, 'Sugerencias del buscador',
@@ -1091,7 +1206,7 @@ SELECT control, estado, detalle FROM (
                       AND tablename IN ('portales_infracciones', 'infracciones',
                                         'infracciones_archivos', 'consultas_infracciones')) = 4
               THEN 'OK' ELSE 'FALTA' END,
-         'nuevo menu para cargar multas y seguir los pagos'
+         'cantidad de multas por municipio y seguimiento del pago'
   UNION ALL
   SELECT 7, 'Tus datos',
          'INFO',

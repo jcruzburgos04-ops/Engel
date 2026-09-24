@@ -373,7 +373,7 @@ SELECT verificar('al quitar la permuta se borra su checklist',
   AND (SELECT count(*) = 16 FROM public.documentos WHERE venta_id = :venta_id));
 
 \echo ''
-\echo '== Infracciones =='
+\echo '== Infracciones por municipio =='
 
 SET request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 
@@ -385,52 +385,75 @@ SELECT debe_fallar('una pagina de consulta tiene que ser un link',
   $$ INSERT INTO public.portales_infracciones (nombre, url) VALUES ('Mal', 'ejemplo.test') $$,
   'check');
 
-SELECT public.guardar_infraccion(jsonb_build_object(
-  'dominio', 'ab 123 cd',
-  'portal_id', (SELECT id FROM public.portales_infracciones WHERE nombre = 'CABA'),
-  'acta', 'Q-123', 'fecha', '2026-05-10', 'descripcion', 'Exceso de velocidad', 'monto', '85000'));
+SELECT verificar('se cargan varios municipios de una sola vez',
+  public.guardar_infracciones(jsonb_build_object(
+    'dominio', 'ab 123 cd',
+    'filas', jsonb_build_array(
+      jsonb_build_object('portal_id', (SELECT id FROM public.portales_infracciones WHERE nombre = 'CABA'),
+                         'cantidad', 3, 'monto', '85000'),
+      jsonb_build_object('municipio', 'Pilar', 'cantidad', '1')))) = 2);
 
-SELECT verificar('la multa queda atada al auto que ya estaba cargado',
-  (SELECT v.dominio = 'AB123CD' AND i.jurisdiccion = 'CABA' AND i.estado = 'impaga' AND i.monto = 85000
-     FROM public.infracciones i JOIN public.vehiculos v ON v.id = i.vehiculo_id WHERE i.acta = 'Q-123'));
+SELECT verificar('cada municipio queda con su cantidad',
+  (SELECT count(*) = 2 FROM public.infracciones i JOIN public.vehiculos v ON v.id = i.vehiculo_id
+    WHERE v.dominio = 'AB123CD')
+  AND (SELECT cantidad = 3 AND monto = 85000 AND estado = 'impaga'
+         FROM public.infracciones WHERE jurisdiccion = 'CABA'));
 
-SELECT public.guardar_infraccion('{"dominio":"AC456ZZ","marca":"Fiat","jurisdiccion":"Pilar","monto":"12000.50"}'::jsonb);
+SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"provincia de buenos aires","cantidad":2}]}'::jsonb);
+SELECT verificar('escribir el nombre de una pagina la vincula',
+  (SELECT portal_id IS NOT NULL FROM public.infracciones WHERE lower(jurisdiccion) = 'provincia de buenos aires'));
 
-SELECT verificar('una multa de un auto en stock lo da de alta',
+SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"caba","cantidad":5}]}'::jsonb);
+SELECT verificar('volver a cargar un municipio actualiza la cantidad, no lo duplica',
+  (SELECT count(*) = 1 AND max(cantidad) = 5 AND max(monto) = 85000
+     FROM public.infracciones WHERE lower(jurisdiccion) = 'caba'));
+
+SELECT debe_fallar('un mismo municipio no puede estar dos veces en el auto',
+  $$ INSERT INTO public.infracciones (vehiculo_id, jurisdiccion)
+     SELECT id, ' Pilar ' FROM public.vehiculos WHERE dominio = 'AB123CD' $$, 'duplicate');
+
+SELECT public.guardar_infracciones('{"dominio":"AC456ZZ","marca":"Fiat","filas":[{"municipio":"Tigre","cantidad":1,"monto":"12000.50"}]}'::jsonb);
+SELECT verificar('un auto en stock se da de alta al cargarle multas',
   (SELECT marca = 'Fiat' FROM public.vehiculos WHERE dominio = 'AC456ZZ'));
 
-SELECT debe_fallar('no se carga una multa con un dominio invalido',
-  $$ SELECT public.guardar_infraccion('{"dominio":"XX1"}'::jsonb) $$, 'formato valido');
-
-SELECT debe_fallar('no se carga una multa con un monto que no es numero',
-  $$ SELECT public.guardar_infraccion('{"dominio":"AC456ZZ","monto":"mucho"}'::jsonb) $$, 'no es un numero');
-
-SELECT debe_fallar('el monto no puede ser negativo',
-  $$ UPDATE public.infracciones SET monto = -5 WHERE acta = 'Q-123' $$, 'check');
-
+SELECT debe_fallar('no se cargan multas con un dominio invalido',
+  $$ SELECT public.guardar_infracciones('{"dominio":"XX1","filas":[{"municipio":"CABA"}]}'::jsonb) $$, 'formato valido');
+SELECT debe_fallar('hace falta al menos un municipio',
+  $$ SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[]}'::jsonb) $$, 'al menos un municipio');
+SELECT debe_fallar('cada fila tiene que decir el municipio',
+  $$ SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"cantidad":2}]}'::jsonb) $$, 'falta el municipio');
+SELECT debe_fallar('la cantidad tiene que ser mayor a cero',
+  $$ SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"Pilar","cantidad":0}]}'::jsonb) $$, 'mayor a cero');
+SELECT debe_fallar('la cantidad tiene que ser un numero',
+  $$ SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"Pilar","cantidad":"tres"}]}'::jsonb) $$, 'mayor a cero');
+SELECT debe_fallar('el monto tiene que ser un numero',
+  $$ SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"Pilar","monto":"mucho"}]}'::jsonb) $$, 'no es un numero');
+SELECT debe_fallar('editando, la cantidad no puede quedar en cero',
+  $$ UPDATE public.infracciones SET cantidad = 0 WHERE jurisdiccion = 'Pilar' $$, 'check');
 SELECT debe_fallar('el estado tiene que ser uno de los cuatro',
-  $$ UPDATE public.infracciones SET estado = 'olvidada' WHERE acta = 'Q-123' $$, 'check');
+  $$ UPDATE public.infracciones SET estado = 'olvidada' WHERE jurisdiccion = 'Pilar' $$, 'check');
 
-UPDATE public.infracciones SET estado = 'pagada' WHERE acta = 'Q-123';
+UPDATE public.infracciones SET estado = 'pagada' WHERE jurisdiccion = 'Pilar';
 SELECT verificar('al marcarla pagada se anota la fecha de pago',
-  (SELECT fecha_pago = current_date FROM public.infracciones WHERE acta = 'Q-123'));
-
-UPDATE public.infracciones SET estado = 'impaga' WHERE acta = 'Q-123';
+  (SELECT fecha_pago = current_date FROM public.infracciones WHERE jurisdiccion = 'Pilar'));
+UPDATE public.infracciones SET estado = 'impaga' WHERE jurisdiccion = 'Pilar';
 SELECT verificar('si se vuelve atras, se borra la fecha de pago',
-  (SELECT fecha_pago IS NULL FROM public.infracciones WHERE acta = 'Q-123'));
+  (SELECT fecha_pago IS NULL FROM public.infracciones WHERE jurisdiccion = 'Pilar'));
+UPDATE public.infracciones SET estado = 'pagada' WHERE jurisdiccion = 'Pilar';
 
-SELECT verificar('el historial registra quien cargo la multa',
+SELECT verificar('el historial registra quien cargo las multas',
   (SELECT count(*) >= 1 FROM public.auditoria
     WHERE entidad = 'infraccion' AND accion = 'crear' AND usuario_nombre = 'jefe'));
 
-SELECT verificar('el historial registra el cambio de estado',
-  (SELECT count(*) >= 2 FROM public.auditoria
-    WHERE entidad = 'infraccion' AND accion = 'editar' AND resumen LIKE '%estado%'));
+SELECT verificar('el historial registra el cambio de cantidad',
+  (SELECT count(*) >= 1 FROM public.auditoria
+    WHERE entidad = 'infraccion' AND accion = 'editar' AND resumen LIKE '%cantidad: "3" → "5"%'));
 
-SELECT verificar('la ficha del dominio trae multas, paginas y resumen',
-  (SELECT jsonb_array_length(f -> 'infracciones') = 1
+SELECT verificar('la ficha del dominio trae los municipios con sus cantidades',
+  (SELECT jsonb_array_length(f -> 'infracciones') = 3
       AND jsonb_array_length(f -> 'portales') = 2
-      AND (f -> 'resumen' ->> 'abiertas')::int = 1
+      AND (f -> 'resumen' ->> 'abiertas')::int = 7        -- 5 en CABA + 2 en Provincia; Pilar pagada
+      AND (f -> 'resumen' ->> 'total')::int = 8
       AND (f -> 'resumen' ->> 'monto_abierto')::numeric = 85000
      FROM public.infracciones_de_dominio('AB123CD') f));
 
@@ -457,22 +480,29 @@ SELECT verificar('una pagina desactivada no aparece en la ficha',
   (SELECT jsonb_array_length(public.infracciones_de_dominio('AB123CD') -> 'portales') = 1));
 UPDATE public.portales_infracciones SET activo = true WHERE nombre = 'Provincia de Buenos Aires';
 
-SELECT verificar('el listado muestra las abiertas y el total adeudado',
+SELECT verificar('el listado trae un renglon por auto con sus municipios',
   (SELECT jsonb_array_length(l -> 'filas') = 2
+      AND (l -> 'filas' -> 0 ->> 'dominio') = 'AB123CD'
+      AND jsonb_array_length(l -> 'filas' -> 0 -> 'municipios') = 3
+      AND (l -> 'resumen' ->> 'abiertas')::int = 8
       AND (l -> 'resumen' ->> 'monto_abierto')::numeric = 97000.50
       AND (l -> 'resumen' ->> 'autos_con_abiertas')::int = 2
      FROM public.listar_infracciones('abiertas', '') l));
 
-SELECT verificar('el listado filtra por dominio y por municipio',
+SELECT verificar('el listado busca por dominio y por municipio',
   (SELECT jsonb_array_length(public.listar_infracciones('todas', 'AC456') -> 'filas') = 1
+      AND jsonb_array_length(public.listar_infracciones('todas', 'tigre') -> 'filas') = 1
       AND jsonb_array_length(public.listar_infracciones('todas', 'pilar') -> 'filas') = 1));
 
-SELECT verificar('el listado de pagadas no trae las impagas',
-  (SELECT jsonb_array_length(public.listar_infracciones('pagadas', '') -> 'filas') = 0));
+UPDATE public.infracciones SET estado = 'pagada'
+ WHERE vehiculo_id = (SELECT id FROM public.vehiculos WHERE dominio = 'AC456ZZ');
+SELECT verificar('un auto con todo pagado pasa a "al dia"',
+  (SELECT jsonb_array_length(public.listar_infracciones('pagadas', '') -> 'filas') = 1
+      AND jsonb_array_length(public.listar_infracciones('abiertas', '') -> 'filas') = 1));
 
-SELECT verificar('las estadisticas cuentan las multas abiertas',
-  (SELECT (public.estadisticas() ->> 'infracciones_abiertas')::int = 2));
+SELECT verificar('las estadisticas suman las multas por resolver',
+  (SELECT (public.estadisticas() ->> 'infracciones_abiertas')::int = 7));
 
 SELECT verificar('la copia completa incluye las infracciones',
-  (SELECT jsonb_array_length(public.exportar_todo() -> 'infracciones') = 2
+  (SELECT jsonb_array_length(public.exportar_todo() -> 'infracciones') = 4
       AND public.exportar_todo() ? 'portales_infracciones'));

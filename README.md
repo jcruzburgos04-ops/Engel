@@ -22,9 +22,9 @@ Supabase, que tiene un plan gratuito con 500 MB de base y 1 GB de archivos.
 - **Fecha de entrega estimada**: la web avisa las entregas proximas y las
   vencidas.
 - **Detalles extras**: notas de la operacion con autor y fecha.
-- **Infracciones**: las multas de cada auto (vendido, permuta o en stock),
-  con su seguimiento de pago y los comprobantes. Un boton por municipio abre
-  su pagina de consulta con el dominio listo para pegar.
+- **Infracciones**: cuantas multas tiene cada auto (vendido, permuta o en
+  stock) en cada municipio, y si se pagaron. Un boton por municipio abre su
+  pagina de consulta con el dominio listo para pegar.
 - **Nada se pierde**: todo cambio se guarda solo, se reintenta si falla y
   queda registrado en un historial con el antes y el despues.
 
@@ -164,26 +164,33 @@ suyo.
 
 ### Infracciones
 
+No se cargan una por una: por cada auto se anota **cuantas infracciones tiene
+en cada municipio** (y el total adeudado, si se sabe). No importa de cuando son.
+
 1. **Cargar las paginas de consulta una sola vez.** En la solapa
    Infracciones, abajo, "Agregar pagina": un nombre (CABA, Provincia, Pilar…)
    y el link de la pagina donde se consultan las multas, copiado de la barra
    del navegador.
-2. **Consultar un auto.** Se escribe el dominio (sugiere mientras escribis) y
-   aparece un boton "Consultar en …" por cada pagina. Al tocarlo se abre la
-   pagina del municipio y **el dominio queda copiado**: en la pagina se toca
-   el campo de la patente y se pega (Ctrl+V, o mantener apretado en el
-   celular). El captcha lo completa la persona: esas paginas lo ponen justamente
-   para que ningun programa pueda consultarlas solo.
-3. **Anotar lo que se encontro.** Al lado de cada boton: "No tiene" o "Tiene
-   multas". Queda registrado quien reviso cada pagina y cuando, asi se sabe si
-   un auto "no tiene multas" o si "nadie se fijo todavia". "Tiene multas" abre
-   directamente la carga.
-4. **Seguir el pago.** Cada multa pasa por **Impaga → En gestion → Pagada**
-   (o Anulada). Al marcarla pagada se anota sola la fecha de pago, y se puede
-   subir el comprobante. Todo se guarda solo, como el resto de la web.
-5. **El seguimiento general**, arriba en la misma solapa: cuantas multas hay
-   por resolver, cuanto se debe en total y en que autos. El numero rojo del
-   menu cuenta las que faltan resolver.
+2. **Cargar infracciones.** Boton "Cargar infracciones": el dominio y, en cada
+   renglon, un municipio y la cantidad. "Otro municipio" suma renglones. Si ese
+   municipio ya estaba cargado para el auto, se actualiza la cantidad.
+3. **Ver un auto.** Se escribe el dominio (sugiere mientras escribis) y aparece
+   un renglon por municipio: el boton "Consultar en …", la cantidad, el total
+   adeudado, el estado y el comprobante. Todo se edita ahi mismo y se guarda
+   solo. Al tocar "Consultar" se abre la pagina del municipio y **el dominio
+   queda copiado**: en la pagina se toca el campo de la patente y se pega
+   (Ctrl+V, o mantener apretado en el celular). El captcha lo completa la
+   persona: esas paginas lo ponen justamente para que ningun programa pueda
+   consultarlas solo.
+4. **Anotar lo que se encontro.** En los municipios sin nada cargado: "No
+   tiene" o "Tiene multas" (que abre la carga con ese municipio ya puesto).
+   Queda registrado quien reviso y cuando, asi se sabe si un auto "no tiene
+   multas" o si "nadie se fijo todavia".
+5. **Seguir el pago.** Cada municipio pasa por **Impaga → En gestion →
+   Pagada** (o Anulada). Al marcarlo pagado se anota sola la fecha de pago.
+6. **El seguimiento general**, arriba en la solapa: un renglon por auto con
+   sus municipios, cuantas multas hay por resolver y cuanto se debe. El numero
+   rojo del menu cuenta las multas por resolver.
 
 **Truco para que el dominio se complete solo:** algunas paginas muestran la
 patente en el link despues de consultar (por ejemplo

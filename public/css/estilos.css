@@ -469,24 +469,42 @@ td.acciones { text-align: right; white-space: nowrap; }
 .fila--apagada td { color: var(--texto-tenue); }
 .celda-link { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
 
-.portal {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .6rem 1rem;
-  padding: .75rem 0;
-  border-bottom: 1px solid var(--borde-suave);
-}
-.portal:first-child { padding-top: 0; }
-.portal:last-child { border-bottom: 0; padding-bottom: 0; }
-.portal__boton { flex: 0 0 auto; }
-.portal__estado { flex: 1 1 220px; min-width: 0; font-size: .875rem; }
-.portal__acciones { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; }
 
-.infraccion { border-left: 4px solid var(--borde); }
-.infraccion--impaga { border-left-color: var(--error); }
-.infraccion--en_gestion { border-left-color: var(--alerta); }
-.infraccion--pagada { border-left-color: var(--ok); }
+/* Carga de infracciones: un renglon por municipio. */
+.carga__fila {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(5rem, .8fr) minmax(0, 1.3fr) auto;
+  gap: .5rem;
+  align-items: end;
+  margin-bottom: .5rem;
+}
+.carga__fila label { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
+.carga__rotulo { font-size: .75rem; font-weight: 600; color: var(--texto-suave); }
+.carga__fila:not(:first-child) .carga__rotulo { display: none; }
+
+/* Tabla de municipios de un dominio. */
+.tabla-municipios td { vertical-align: middle; }
+.tabla-municipios .campo { gap: .15rem; }
+.tabla-municipios .municipio__cantidad { width: 5.5rem; }
+.tabla-municipios .municipio__monto { width: 9rem; }
+.tabla-municipios select { min-width: 8.5rem; }
+.municipio td:first-child { border-left: 4px solid transparent; }
+.municipio--impaga td:first-child { border-left-color: var(--error); }
+.municipio--en_gestion td:first-child { border-left-color: var(--alerta); }
+.municipio--pagada td:first-child { border-left-color: var(--ok); }
+.municipio__preguntar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+
+@media (max-width: 560px) {
+  .carga__fila {
+    grid-template-columns: 1fr 5rem;
+    padding-bottom: .6rem;
+    border-bottom: 1px solid var(--borde-suave);
+  }
+  .carga__fila .carga__rotulo { display: block !important; }
+  .carga__fila > :nth-child(3) { grid-column: 1 / 2; }
+  .carga__fila > button { justify-self: end; align-self: end; }
+}
 
 /* Aviso de base desactualizada: ocupa todo el ancho, arriba de todo. */
 .barra-version {

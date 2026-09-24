@@ -91,7 +91,7 @@ async function perfilDe(usuario) {
 // sola (Netlify) pero el SQL se corre a mano, asi que pueden quedar
 // desfasadas: si la base es mas vieja, conviene decirlo con todas las letras
 // en vez de dejar que Postgres tire un error que nadie entiende.
-export const VERSION_ESQUEMA = 4;
+export const VERSION_ESQUEMA = 5;
 
 // Devuelve la version del esquema instalado, o null si no se pudo averiguar.
 // Una base vieja no tiene la funcion version_esquema(): eso cuenta como 1.
@@ -422,11 +422,14 @@ export const api = {
     return (await rpc('listar_infracciones', { p_filtro: filtro, p_q: q || '' })) || { filas: [], resumen: {} };
   },
 
-  async crearInfraccion(datos) {
-    return rpc('guardar_infraccion', { p_datos: datos });
+  // Cuantas infracciones tiene un dominio en uno o varios municipios:
+  // { dominio, filas: [{ municipio, cantidad, monto }], marca?, modelo? }
+  async guardarInfracciones(datos) {
+    return rpc('guardar_infracciones', { p_datos: datos });
   },
 
-  // Guarda uno o varios campos de una multa. Lo usa la cola de guardado.
+  // Guarda un campo de un municipio (cantidad, monto, estado). Lo usa la
+  // cola de guardado.
   async editarInfraccion(id, cambios) {
     const { cliente, usuario } = await clienteConSesion();
     return revisar(
@@ -434,7 +437,7 @@ export const api = {
         .from('infracciones')
         .update({ ...cambios, actualizado_por: usuario.id })
         .eq('id', Number(id))
-        .select('id, estado, fecha_pago, monto')
+        .select('id, cantidad, estado, fecha_pago, monto')
         .single()
     );
   },
