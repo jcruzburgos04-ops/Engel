@@ -462,6 +462,32 @@ td.acciones { text-align: right; white-space: nowrap; }
 .sugerencia__texto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sugerencia__papeles { color: var(--texto-suave); font-size: .8rem; white-space: nowrap; }
 
+/* Infracciones */
+.etiqueta-campo { display: block; font-size: .8rem; font-weight: 600; color: var(--texto-suave); margin-bottom: .35rem; }
+.subtitulo { font-size: 1rem; margin: 1.5rem 0 .75rem; }
+.fila-link { cursor: pointer; }
+.fila--apagada td { color: var(--texto-tenue); }
+.celda-link { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
+
+.portal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem 1rem;
+  padding: .75rem 0;
+  border-bottom: 1px solid var(--borde-suave);
+}
+.portal:first-child { padding-top: 0; }
+.portal:last-child { border-bottom: 0; padding-bottom: 0; }
+.portal__boton { flex: 0 0 auto; }
+.portal__estado { flex: 1 1 220px; min-width: 0; font-size: .875rem; }
+.portal__acciones { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+
+.infraccion { border-left: 4px solid var(--borde); }
+.infraccion--impaga { border-left-color: var(--error); }
+.infraccion--en_gestion { border-left-color: var(--alerta); }
+.infraccion--pagada { border-left-color: var(--ok); }
+
 /* Aviso de base desactualizada: ocupa todo el ancho, arriba de todo. */
 .barra-version {
   margin: 0;
@@ -522,12 +548,21 @@ td.acciones { text-align: right; white-space: nowrap; }
     position: static;
     height: auto;
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
-    overflow-x: auto;
   }
-  .menu__marca { border-bottom: none; border-right: 1px solid rgba(255, 255, 255, .08); padding: .75rem 1rem; }
+  .menu__marca { border-bottom: none; padding: .75rem 1rem; flex: 1; }
   .menu__marca span { display: none; }
-  .menu__links { display: flex; gap: .25rem; padding: .5rem; flex: 1; }
+  /* Los accesos van en su propia fila, de lado a lado, debajo de la marca. */
+  .menu__links {
+    display: flex;
+    gap: .25rem;
+    padding: .25rem .5rem .5rem;
+    flex: 1 1 100%;
+    order: 3;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
   .menu__link { white-space: nowrap; }
   .menu__link .texto { display: none; }
   .menu__link.activo .texto { display: inline; }

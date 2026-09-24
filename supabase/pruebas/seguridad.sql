@@ -25,6 +25,11 @@ SELECT verificar('el visitante sin sesion no ve ninguna venta', visibles('ventas
 SELECT verificar('el visitante sin sesion no ve ningun vehiculo', visibles('vehiculos') <= 0);
 SELECT verificar('el visitante sin sesion no ve la documentacion', visibles('documentos') <= 0);
 SELECT verificar('el visitante sin sesion no ve el historial', visibles('auditoria') <= 0);
+SELECT verificar('el visitante sin sesion no ve las multas', visibles('infracciones') <= 0);
+SELECT verificar('el visitante sin sesion no ve las paginas de consulta', visibles('portales_infracciones') <= 0);
+
+SELECT debe_fallar('el visitante sin sesion no puede cargar una multa',
+  $$ SELECT public.guardar_infraccion('{"dominio":"AB123CD"}'::jsonb) $$);
 
 SELECT debe_fallar('el visitante sin sesion no puede cargar una venta',
   $$ SELECT public.crear_venta('{"cliente_nombre":"X","vehiculo":{"dominio":"AB123CD"}}'::jsonb) $$);
@@ -45,6 +50,11 @@ SELECT verificar('el usuario no habilitado no ve vehiculos', visibles('vehiculos
 SELECT verificar('el usuario no habilitado no ve documentacion', visibles('documentos') = 0);
 SELECT verificar('el usuario no habilitado no ve archivos', visibles('archivos') = 0);
 SELECT verificar('el usuario no habilitado no ve el historial', visibles('auditoria') = 0);
+SELECT verificar('el usuario no habilitado no ve las multas', visibles('infracciones') = 0);
+SELECT verificar('el usuario no habilitado no ve las consultas', visibles('consultas_infracciones') = 0);
+
+SELECT debe_fallar('el usuario no habilitado no puede cargar una multa',
+  $$ SELECT public.guardar_infraccion('{"dominio":"AB123CD"}'::jsonb) $$, 'permisos');
 
 SELECT debe_fallar('el usuario no habilitado no puede cargar una venta',
   $$ SELECT public.crear_venta('{"vendedor_id":"22222222-2222-2222-2222-222222222222","cliente_nombre":"X","vehiculo":{"dominio":"QQ111QQ"}}'::jsonb) $$,
@@ -70,8 +80,33 @@ SELECT public.actualizar_venta(1, '{"forma_pago":"Transferencia"}'::jsonb);
 SELECT verificar('el integrante del equipo puede editar',
   (SELECT forma_pago = 'Transferencia' FROM public.ventas WHERE id = 1));
 
+SELECT verificar('el integrante del equipo ve las multas', visibles('infracciones') >= 2);
+
+SELECT public.guardar_infraccion('{"dominio":"AB123CD","acta":"V-1","monto":"1000"}'::jsonb);
+UPDATE public.infracciones SET estado = 'en_gestion' WHERE acta = 'V-1';
+SELECT verificar('un vendedor puede cargar y seguir una multa',
+  (SELECT estado = 'en_gestion' FROM public.infracciones WHERE acta = 'V-1'));
+
+DELETE FROM public.infracciones WHERE acta = 'V-1';
+SELECT verificar('un vendedor puede borrar una multa cargada por error',
+  (SELECT count(*) = 0 FROM public.infracciones WHERE acta = 'V-1'));
+SELECT verificar('lo borrado queda copiado en el historial',
+  (SELECT count(*) = 1 FROM public.auditoria
+    WHERE entidad = 'infraccion' AND accion = 'borrar' AND antes ->> 'acta' = 'V-1'));
+
+INSERT INTO public.portales_infracciones (nombre, url) VALUES ('Tigre', 'https://ejemplo-tigre.test/');
+SELECT verificar('un vendedor puede agregar una pagina de consulta',
+  (SELECT count(*) = 1 FROM public.portales_infracciones WHERE nombre = 'Tigre'));
+
 \echo ''
 \echo '== Cosas que solo puede hacer un administrador =='
+
+DELETE FROM public.portales_infracciones WHERE nombre = 'Tigre';
+SELECT verificar('un vendedor no puede borrar una pagina de consulta',
+  (SELECT count(*) = 1 FROM public.portales_infracciones WHERE nombre = 'Tigre'));
+
+SELECT debe_fallar('nadie puede editar el registro de consultas',
+  $$ UPDATE public.consultas_infracciones SET resultado = 'con_infracciones' $$);
 
 SELECT debe_fallar('un vendedor no puede borrar una venta',
   $$ SELECT public.borrar_venta(1) $$, 'administrador');

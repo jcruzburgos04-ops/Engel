@@ -22,6 +22,9 @@ Supabase, que tiene un plan gratuito con 500 MB de base y 1 GB de archivos.
 - **Fecha de entrega estimada**: la web avisa las entregas proximas y las
   vencidas.
 - **Detalles extras**: notas de la operacion con autor y fecha.
+- **Infracciones**: las multas de cada auto (vendido, permuta o en stock),
+  con su seguimiento de pago y los comprobantes. Un boton por municipio abre
+  su pagina de consulta con el dominio listo para pegar.
 - **Nada se pierde**: todo cambio se guarda solo, se reintenta si falla y
   queda registrado en un historial con el antes y el despues.
 
@@ -58,8 +61,8 @@ Al terminar, abajo en **Results** aparece una tabla con el resultado:
 
 | control | estado | detalle |
 | --- | --- | --- |
-| Tablas de datos | OK | 11 de 11 |
-| Funciones del sistema | OK | 10 de 10 |
+| Tablas de datos | OK | 15 de 15 |
+| Funciones del sistema | OK | 12 de 12 |
 | Reglas de acceso a los datos | OK | 29 reglas |
 | Deposito de documentacion | OK | creado |
 | Reglas de acceso a los archivos | OK | 4 de 4 |
@@ -157,6 +160,37 @@ suyo.
 5. **Buscar dominio**: se escribe la patente y aparece el auto, todas las
    operaciones donde figura (como vendido o como permuta) y el boton para bajar
    toda la documentacion en un ZIP.
+6. **Infracciones**: ver la seccion siguiente.
+
+### Infracciones
+
+1. **Cargar las paginas de consulta una sola vez.** En la solapa
+   Infracciones, abajo, "Agregar pagina": un nombre (CABA, Provincia, Pilar…)
+   y el link de la pagina donde se consultan las multas, copiado de la barra
+   del navegador.
+2. **Consultar un auto.** Se escribe el dominio (sugiere mientras escribis) y
+   aparece un boton "Consultar en …" por cada pagina. Al tocarlo se abre la
+   pagina del municipio y **el dominio queda copiado**: en la pagina se toca
+   el campo de la patente y se pega (Ctrl+V, o mantener apretado en el
+   celular). El captcha lo completa la persona: esas paginas lo ponen justamente
+   para que ningun programa pueda consultarlas solo.
+3. **Anotar lo que se encontro.** Al lado de cada boton: "No tiene" o "Tiene
+   multas". Queda registrado quien reviso cada pagina y cuando, asi se sabe si
+   un auto "no tiene multas" o si "nadie se fijo todavia". "Tiene multas" abre
+   directamente la carga.
+4. **Seguir el pago.** Cada multa pasa por **Impaga → En gestion → Pagada**
+   (o Anulada). Al marcarla pagada se anota sola la fecha de pago, y se puede
+   subir el comprobante. Todo se guarda solo, como el resto de la web.
+5. **El seguimiento general**, arriba en la misma solapa: cuantas multas hay
+   por resolver, cuanto se debe en total y en que autos. El numero rojo del
+   menu cuenta las que faltan resolver.
+
+**Truco para que el dominio se complete solo:** algunas paginas muestran la
+patente en el link despues de consultar (por ejemplo
+`...consulta?dominio=AB123CD`). Si pasa eso, se guarda ese link cambiando la
+patente por `{dominio}`: `...consulta?dominio={dominio}`. Desde ahi, el boton
+abre la pagina con la patente ya puesta. La tabla de paginas indica cuales
+"completan el dominio" y cuales lo copian.
 
 ## Que se guarda solo (y por que no se pierde nada)
 
@@ -259,6 +293,7 @@ public/                 La web (HTML, CSS y JavaScript sin compilar)
   js/guardado.js        Cola de guardado automatico con reintentos
   js/borradores.js      Formularios a medio completar
   js/campo-auto.js      Campos que se guardan solos
+  js/sugeridor.js       Campo de dominio que sugiere mientras se escribe
   js/descargas.js       ZIP, CSV y copia completa, armados en el navegador
   js/sincronizacion.js  Aviso de cambios de otras personas
   js/vistas/            Una pantalla por archivo

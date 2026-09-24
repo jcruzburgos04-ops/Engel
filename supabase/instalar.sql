@@ -169,6 +169,82 @@ CREATE TABLE IF NOT EXISTS public.notas (
 
 CREATE INDEX IF NOT EXISTS idx_notas_venta ON public.notas (venta_id);
 
+-- >>> infracciones
+-- ---------------------------------------------------------------------
+-- Infracciones (multas de transito) de cada auto
+-- ---------------------------------------------------------------------
+
+-- Paginas de consulta de multas de cada municipio o provincia. La direccion
+-- puede llevar {dominio}: si la pagina acepta la patente en el link, se
+-- completa sola. Si no, la web copia la patente para pegarla.
+CREATE TABLE IF NOT EXISTS public.portales_infracciones (
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nombre         text NOT NULL CHECK (btrim(nombre) <> ''),
+  url            text NOT NULL CHECK (url ~* '^https?://'),
+  notas          text NOT NULL DEFAULT '',
+  orden          integer NOT NULL DEFAULT 0,
+  activo         boolean NOT NULL DEFAULT true,
+  creado_en      timestamptz NOT NULL DEFAULT now(),
+  actualizado_en timestamptz NOT NULL DEFAULT now()
+);
+
+-- Cada multa, atada al auto por su dominio. Puede ser de un auto vendido,
+-- de una permuta o de uno que esta en stock.
+CREATE TABLE IF NOT EXISTS public.infracciones (
+  id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  vehiculo_id     bigint NOT NULL REFERENCES public.vehiculos (id),
+  portal_id       bigint REFERENCES public.portales_infracciones (id) ON DELETE SET NULL,
+  -- Donde se labro (municipio, provincia). Queda escrito aunque se borre
+  -- la pagina de consulta.
+  jurisdiccion    text NOT NULL DEFAULT '',
+  acta            text NOT NULL DEFAULT '',
+  fecha           date,
+  descripcion     text NOT NULL DEFAULT '',
+  monto           numeric(14, 2) CHECK (monto IS NULL OR monto >= 0),
+  -- impaga -> en gestion (descargo, plan de pago) -> pagada. Anulada si se
+  -- cayo o prescribio.
+  estado          text NOT NULL DEFAULT 'impaga'
+                  CHECK (estado IN ('impaga', 'en_gestion', 'pagada', 'anulada')),
+  fecha_pago      date,
+  observaciones   text NOT NULL DEFAULT '',
+  creado_por      uuid REFERENCES public.perfiles (id),
+  creado_en       timestamptz NOT NULL DEFAULT now(),
+  actualizado_en  timestamptz NOT NULL DEFAULT now(),
+  actualizado_por uuid REFERENCES public.perfiles (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_infracciones_vehiculo ON public.infracciones (vehiculo_id);
+CREATE INDEX IF NOT EXISTS idx_infracciones_estado ON public.infracciones (estado);
+
+-- Comprobantes de pago y fotos del acta.
+CREATE TABLE IF NOT EXISTS public.infracciones_archivos (
+  id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  infraccion_id   bigint NOT NULL REFERENCES public.infracciones (id) ON DELETE CASCADE,
+  nombre_original text NOT NULL,
+  ruta            text NOT NULL,
+  mime            text NOT NULL DEFAULT 'application/octet-stream',
+  tamano          bigint NOT NULL DEFAULT 0,
+  subido_por      uuid REFERENCES public.perfiles (id),
+  subido_en       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_infracciones_archivos ON public.infracciones_archivos (infraccion_id);
+
+-- Registro de cada vez que alguien reviso una pagina de consulta. Sirve para
+-- distinguir "no tiene multas" de "nadie se fijo todavia".
+CREATE TABLE IF NOT EXISTS public.consultas_infracciones (
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  dominio        text NOT NULL,
+  portal_id      bigint NOT NULL REFERENCES public.portales_infracciones (id) ON DELETE CASCADE,
+  resultado      text NOT NULL CHECK (resultado IN ('sin_infracciones', 'con_infracciones')),
+  consultado_por uuid REFERENCES public.perfiles (id),
+  consultado_en  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_consultas_infracciones
+  ON public.consultas_infracciones (dominio, portal_id, consultado_en DESC);
+-- <<< infracciones
+
 -- ---------------------------------------------------------------------
 -- Historial de cambios
 -- ---------------------------------------------------------------------
@@ -563,6 +639,101 @@ CREATE POLICY borradores_propios ON public.borradores FOR ALL
 DROP POLICY IF EXISTS estado_ver ON public.estado_datos;
 CREATE POLICY estado_ver ON public.estado_datos FOR SELECT USING (public.es_miembro());
 
+-- >>> infracciones
+-- ---------------------------------------------------------------------
+-- Infracciones: historial, marcas de tiempo y reglas de acceso
+-- ---------------------------------------------------------------------
+
+-- Al marcar una multa como pagada se anota la fecha de hoy, si no se puso
+-- otra. Si se vuelve atras, la fecha de pago se borra para no confundir.
+CREATE OR REPLACE FUNCTION public.infraccion_al_cambiar_estado()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.estado = 'pagada' AND NEW.fecha_pago IS NULL THEN
+    NEW.fecha_pago := current_date;
+  ELSIF TG_OP = 'UPDATE' AND OLD.estado = 'pagada' AND NEW.estado <> 'pagada'
+        AND NEW.fecha_pago IS NOT DISTINCT FROM OLD.fecha_pago THEN
+    NEW.fecha_pago := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_infraccion_estado ON public.infracciones;
+CREATE TRIGGER trg_infraccion_estado
+  BEFORE INSERT OR UPDATE ON public.infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.infraccion_al_cambiar_estado();
+
+DROP TRIGGER IF EXISTS trg_tocar_infracciones ON public.infracciones;
+CREATE TRIGGER trg_tocar_infracciones BEFORE UPDATE ON public.infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.tocar_actualizado_en();
+
+DROP TRIGGER IF EXISTS trg_tocar_portales ON public.portales_infracciones;
+CREATE TRIGGER trg_tocar_portales BEFORE UPDATE ON public.portales_infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.tocar_actualizado_en();
+
+DROP TRIGGER IF EXISTS trg_auditar_infracciones ON public.infracciones;
+CREATE TRIGGER trg_auditar_infracciones
+  AFTER INSERT OR UPDATE OR DELETE ON public.infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.auditar('', 'infraccion');
+
+DROP TRIGGER IF EXISTS trg_auditar_infracciones_archivos ON public.infracciones_archivos;
+CREATE TRIGGER trg_auditar_infracciones_archivos
+  AFTER INSERT OR DELETE ON public.infracciones_archivos
+  FOR EACH ROW EXECUTE FUNCTION public.auditar('', 'comprobante de infraccion');
+
+DROP TRIGGER IF EXISTS trg_auditar_portales ON public.portales_infracciones;
+CREATE TRIGGER trg_auditar_portales
+  AFTER INSERT OR UPDATE OR DELETE ON public.portales_infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.auditar('', 'pagina de consulta');
+
+DROP TRIGGER IF EXISTS trg_auditar_consultas ON public.consultas_infracciones;
+CREATE TRIGGER trg_auditar_consultas
+  AFTER INSERT ON public.consultas_infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.auditar('', 'consulta de infracciones');
+
+ALTER TABLE public.portales_infracciones  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.infracciones           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.infracciones_archivos  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.consultas_infracciones ENABLE ROW LEVEL SECURITY;
+
+-- Todo el equipo ve, carga y edita. Borrar una multa o un comprobante
+-- tambien (un error de carga se tiene que poder corregir): el historial
+-- guarda una copia completa de lo borrado.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['portales_infracciones', 'infracciones', 'infracciones_archivos', 'consultas_infracciones']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_ver ON public.%I', t, t);
+    EXECUTE format('CREATE POLICY %I_ver ON public.%I FOR SELECT USING (public.es_miembro())', t, t);
+
+    EXECUTE format('DROP POLICY IF EXISTS %I_crear ON public.%I', t, t);
+    EXECUTE format('CREATE POLICY %I_crear ON public.%I FOR INSERT WITH CHECK (public.es_miembro())', t, t);
+  END LOOP;
+
+  FOREACH t IN ARRAY ARRAY['portales_infracciones', 'infracciones']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_editar ON public.%I', t, t);
+    EXECUTE format('CREATE POLICY %I_editar ON public.%I FOR UPDATE USING (public.es_miembro()) WITH CHECK (public.es_miembro())', t, t);
+  END LOOP;
+
+  FOREACH t IN ARRAY ARRAY['infracciones', 'infracciones_archivos']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_borrar ON public.%I', t, t);
+    EXECUTE format('CREATE POLICY %I_borrar ON public.%I FOR DELETE USING (public.es_miembro())', t, t);
+  END LOOP;
+END $$;
+
+-- Una pagina de consulta la saca solo un administrador (el resto la puede
+-- desactivar). El registro de consultas no se edita ni se borra.
+DROP POLICY IF EXISTS portales_infracciones_borrar ON public.portales_infracciones;
+CREATE POLICY portales_infracciones_borrar ON public.portales_infracciones
+  FOR DELETE USING (public.es_admin());
+-- <<< infracciones
+
 -- ===== 03-funciones.sql =====
 -- Engel · Funciones de negocio
 -- =====================================================================
@@ -618,9 +789,10 @@ $$;
 --   1 = primera instalacion
 --   2 = patentes de moto, sin chasis/motor, estados nuevos de documentacion
 --   3 = sugerencias de dominio mientras se escribe en el buscador
+--   4 = infracciones: multas por auto, paginas de consulta y pagos
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 3 $$;
+AS $$ SELECT 4 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -1014,6 +1186,92 @@ BEGIN
     v_copia, NULL);
 
   RETURN v_rutas;
+END;
+$$;
+
+-- ---------------------------------------------------------------------
+-- Infracciones
+-- ---------------------------------------------------------------------
+
+-- Carga una multa. Si el dominio todavia no estaba en el sistema (un auto
+-- en stock, por ejemplo) se da de alta con los datos que vengan.
+CREATE OR REPLACE FUNCTION public.guardar_infraccion(p_datos jsonb)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_vehiculo bigint;
+  v_portal bigint := NULLIF(p_datos ->> 'portal_id', '')::bigint;
+  v_jurisdiccion text := public.txt(p_datos, 'jurisdiccion', 120);
+  v_monto_texto text := NULLIF(trim(p_datos ->> 'monto'), '');
+  v_estado text := COALESCE(NULLIF(p_datos ->> 'estado', ''), 'impaga');
+  v_id bigint;
+BEGIN
+  IF NOT public.es_miembro() THEN
+    RAISE EXCEPTION 'No tenes permisos para cargar infracciones.' USING ERRCODE = '42501';
+  END IF;
+
+  IF v_monto_texto IS NOT NULL AND v_monto_texto !~ '^[0-9]+(\.[0-9]{1,2})?$' THEN
+    RAISE EXCEPTION 'El monto "%" no es un numero valido.', v_monto_texto USING ERRCODE = '22023';
+  END IF;
+
+  IF v_estado NOT IN ('impaga', 'en_gestion', 'pagada', 'anulada') THEN
+    RAISE EXCEPTION 'Estado de infraccion desconocido: %', v_estado USING ERRCODE = '22023';
+  END IF;
+
+  -- guardar_vehiculo valida el dominio y no pisa los datos que ya habia.
+  v_vehiculo := public.guardar_vehiculo(jsonb_build_object(
+    'dominio', p_datos ->> 'dominio',
+    'marca', p_datos ->> 'marca',
+    'modelo', p_datos ->> 'modelo'
+  ));
+
+  IF v_portal IS NOT NULL AND v_jurisdiccion = '' THEN
+    SELECT nombre INTO v_jurisdiccion FROM public.portales_infracciones WHERE id = v_portal;
+  END IF;
+
+  INSERT INTO public.infracciones (
+    vehiculo_id, portal_id, jurisdiccion, acta, fecha, descripcion, monto,
+    estado, fecha_pago, observaciones, creado_por, actualizado_por
+  ) VALUES (
+    v_vehiculo,
+    v_portal,
+    COALESCE(v_jurisdiccion, ''),
+    public.txt(p_datos, 'acta', 80),
+    NULLIF(p_datos ->> 'fecha', '')::date,
+    public.txt(p_datos, 'descripcion', 500),
+    v_monto_texto::numeric,
+    v_estado,
+    NULLIF(p_datos ->> 'fecha_pago', '')::date,
+    public.txt(p_datos, 'observaciones', 1000),
+    auth.uid(),
+    auth.uid()
+  )
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+-- Deja asentado que alguien reviso una pagina de consulta para un dominio.
+CREATE OR REPLACE FUNCTION public.registrar_consulta_infracciones(
+  p_dominio text,
+  p_portal_id bigint,
+  p_resultado text
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NOT public.dominio_valido(p_dominio) THEN
+    RAISE EXCEPTION 'El dominio "%" no tiene un formato valido.', p_dominio USING ERRCODE = '22023';
+  END IF;
+  IF p_resultado NOT IN ('sin_infracciones', 'con_infracciones') THEN
+    RAISE EXCEPTION 'Resultado de consulta desconocido: %', p_resultado USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO public.consultas_infracciones (dominio, portal_id, resultado, consultado_por)
+  VALUES (public.normalizar_dominio(p_dominio), p_portal_id, p_resultado, auth.uid());
 END;
 $$;
 
@@ -1412,6 +1670,11 @@ AS $$
     'documentos_pendientes', (SELECT count(*) FROM public.documentos d
                                 JOIN public.ventas v ON v.id = d.venta_id
                                WHERE d.estado <> 'aprobado' AND v.estado <> 'cancelado'),
+    -- Multas que todavia hay que pagar o resolver.
+    'infracciones_abiertas', (SELECT count(*) FROM public.infracciones
+                                WHERE estado IN ('impaga', 'en_gestion')),
+    'infracciones_monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM public.infracciones
+                                     WHERE estado IN ('impaga', 'en_gestion')),
     'porTenencia', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('tenencia', tenencia, 'cantidad', cantidad))
       FROM (
@@ -1421,6 +1684,111 @@ AS $$
         GROUP BY ve.tenencia
       ) AS t
     ), '[]'::jsonb)
+  );
+$$;
+
+-- ---------------------------------------------------------------------
+-- Infracciones
+-- ---------------------------------------------------------------------
+
+-- Todo lo de un dominio: sus multas, y las paginas de consulta con la
+-- ultima vez que alguien se fijo. Funciona aunque el dominio todavia no
+-- este cargado, asi se puede consultar antes de tener nada.
+CREATE OR REPLACE FUNCTION public.infracciones_de_dominio(p_dominio text)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  WITH d AS (SELECT public.normalizar_dominio(p_dominio) AS dominio),
+  v AS (SELECT ve.* FROM public.vehiculos ve, d WHERE ve.dominio = d.dominio),
+  i AS (SELECT inf.* FROM public.infracciones inf JOIN v ON v.id = inf.vehiculo_id)
+  SELECT jsonb_build_object(
+    'dominio', (SELECT dominio FROM d),
+    'vehiculo', (SELECT jsonb_build_object(
+                   'id', v.id, 'dominio', v.dominio, 'marca', v.marca, 'modelo', v.modelo,
+                   'anio', v.anio, 'tenencia', v.tenencia) FROM v),
+    'infracciones', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', i.id, 'portal_id', i.portal_id, 'jurisdiccion', i.jurisdiccion,
+        'acta', i.acta, 'fecha', i.fecha, 'descripcion', i.descripcion,
+        'monto', i.monto, 'estado', i.estado, 'fecha_pago', i.fecha_pago,
+        'observaciones', i.observaciones, 'creado_en', i.creado_en,
+        'creado_por_nombre', (SELECT nombre FROM public.perfiles p WHERE p.id = i.creado_por),
+        'archivos', COALESCE((
+          SELECT jsonb_agg(jsonb_build_object(
+            'id', a.id, 'nombre_original', a.nombre_original, 'ruta', a.ruta,
+            'mime', a.mime, 'tamano', a.tamano, 'subido_en', a.subido_en
+          ) ORDER BY a.id DESC)
+          FROM public.infracciones_archivos a WHERE a.infraccion_id = i.id
+        ), '[]'::jsonb)
+      ) ORDER BY CASE WHEN i.estado IN ('impaga', 'en_gestion') THEN 0 ELSE 1 END,
+                 i.fecha DESC NULLS LAST, i.id DESC)
+      FROM i
+    ), '[]'::jsonb),
+    'portales', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', po.id, 'nombre', po.nombre, 'url', po.url, 'notas', po.notas,
+        'ultima_consulta', (
+          SELECT jsonb_build_object(
+            'resultado', c.resultado, 'consultado_en', c.consultado_en,
+            'consultado_por_nombre', (SELECT nombre FROM public.perfiles p WHERE p.id = c.consultado_por))
+          FROM public.consultas_infracciones c, d
+          WHERE c.portal_id = po.id AND c.dominio = d.dominio
+          ORDER BY c.consultado_en DESC LIMIT 1)
+      ) ORDER BY po.orden, po.nombre)
+      FROM public.portales_infracciones po WHERE po.activo
+    ), '[]'::jsonb),
+    'resumen', jsonb_build_object(
+      'abiertas', (SELECT count(*) FROM i WHERE estado IN ('impaga', 'en_gestion')),
+      'monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM i WHERE estado IN ('impaga', 'en_gestion')),
+      'pagadas', (SELECT count(*) FROM i WHERE estado = 'pagada'),
+      'total', (SELECT count(*) FROM i)
+    )
+  );
+$$;
+
+-- Listado general para hacer el seguimiento de pagos.
+--   p_filtro: 'abiertas' (impagas y en gestion), 'impagas', 'pagadas', 'todas'
+CREATE OR REPLACE FUNCTION public.listar_infracciones(p_filtro text DEFAULT 'abiertas', p_q text DEFAULT '')
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  WITH base AS (
+    SELECT i.*, v.dominio, v.marca, v.modelo, v.anio
+    FROM public.infracciones i JOIN public.vehiculos v ON v.id = i.vehiculo_id
+    WHERE (public.normalizar_dominio(p_q) = ''
+           OR v.dominio LIKE '%' || public.normalizar_dominio(p_q) || '%'
+           OR i.jurisdiccion ILIKE '%' || btrim(COALESCE(p_q, '')) || '%'
+           OR i.acta ILIKE '%' || btrim(COALESCE(p_q, '')) || '%')
+  ),
+  filtradas AS (
+    SELECT * FROM base
+    WHERE CASE COALESCE(NULLIF(p_filtro, ''), 'abiertas')
+            WHEN 'abiertas' THEN estado IN ('impaga', 'en_gestion')
+            WHEN 'impagas' THEN estado = 'impaga'
+            WHEN 'pagadas' THEN estado = 'pagada'
+            ELSE true
+          END
+  )
+  SELECT jsonb_build_object(
+    'filas', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', f.id, 'dominio', f.dominio,
+        'vehiculo', NULLIF(btrim(concat_ws(' ', f.marca, f.modelo, f.anio::text)), ''),
+        'jurisdiccion', f.jurisdiccion, 'acta', f.acta, 'fecha', f.fecha,
+        'descripcion', f.descripcion, 'monto', f.monto, 'estado', f.estado,
+        'fecha_pago', f.fecha_pago,
+        'archivos', (SELECT count(*) FROM public.infracciones_archivos a WHERE a.infraccion_id = f.id)
+      ) ORDER BY CASE WHEN f.estado IN ('impaga', 'en_gestion') THEN 0 ELSE 1 END,
+                 f.fecha DESC NULLS LAST, f.id DESC)
+      FROM filtradas f
+    ), '[]'::jsonb),
+    'resumen', jsonb_build_object(
+      'abiertas', (SELECT count(*) FROM base WHERE estado IN ('impaga', 'en_gestion')),
+      'monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM base WHERE estado IN ('impaga', 'en_gestion')),
+      'autos_con_abiertas', (SELECT count(DISTINCT vehiculo_id) FROM base WHERE estado IN ('impaga', 'en_gestion')),
+      'pagadas', (SELECT count(*) FROM base WHERE estado = 'pagada'),
+      'total', (SELECT count(*) FROM base)
+    )
   );
 $$;
 
@@ -1456,6 +1824,10 @@ AS $$
     'documentos', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.documentos t), '[]'::jsonb),
     'archivos', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.archivos t), '[]'::jsonb),
     'notas', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.notas t), '[]'::jsonb),
+    'portales_infracciones', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.portales_infracciones t), '[]'::jsonb),
+    'infracciones', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.infracciones t), '[]'::jsonb),
+    'infracciones_archivos', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.infracciones_archivos t), '[]'::jsonb),
+    'consultas_infracciones', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.consultas_infracciones t), '[]'::jsonb),
     'auditoria', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.auditoria t), '[]'::jsonb)
   );
 $$;
@@ -1472,6 +1844,8 @@ BEGIN
     'agregar_permuta(bigint, jsonb)', 'quitar_permuta(bigint)', 'borrar_venta(bigint)',
     'venta_completa(bigint)', 'listar_ventas(jsonb)', 'listar_ventas_completo(jsonb)',
     'buscar_dominio(text)', 'sugerir_dominios(text, integer)',
+    'infracciones_de_dominio(text)', 'listar_infracciones(text, text)',
+    'guardar_infraccion(jsonb)', 'registrar_consulta_infracciones(text, bigint, text)',
     'panel_documentacion(boolean, text)', 'estadisticas()',
     'historial_venta(bigint)', 'exportar_todo()', 'documentacion_de_venta(bigint)',
     'guardar_vehiculo(jsonb)', 'actualizar_vehiculo(bigint, jsonb)',
@@ -1574,6 +1948,16 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 -- El visitante sin sesion no puede tocar nada.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
 
+-- >>> infracciones
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  public.portales_infracciones, public.infracciones, public.infracciones_archivos
+TO authenticated;
+GRANT SELECT, INSERT ON public.consultas_infracciones TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+REVOKE ALL ON public.portales_infracciones, public.infracciones,
+  public.infracciones_archivos, public.consultas_infracciones FROM anon;
+-- <<< infracciones
+
 -- ===== 07-verificar.sql =====
 -- Engel · Verificacion: se corre al final de la instalacion
 -- =====================================================================
@@ -1588,12 +1972,15 @@ WITH controles AS (
   SELECT
     (SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
        AND tablename IN ('perfiles','invitaciones','vehiculos','ventas','permutas',
-                         'documentos','archivos','notas','auditoria','borradores','estado_datos')) AS tablas,
+                         'documentos','archivos','notas','auditoria','borradores','estado_datos',
+                         'portales_infracciones','infracciones','infracciones_archivos',
+                         'consultas_infracciones')) AS tablas,
     (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'public'
         AND p.proname IN ('crear_venta','actualizar_venta','venta_completa','listar_ventas',
                           'buscar_dominio','panel_documentacion','estadisticas','es_miembro',
-                          'version_esquema','sugerir_dominios')) AS funciones,
+                          'version_esquema','sugerir_dominios',
+                          'infracciones_de_dominio','guardar_infraccion')) AS funciones,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'public') AS reglas,
     (SELECT count(*) FROM storage.buckets WHERE id = 'documentacion') AS deposito,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'storage'
@@ -1602,13 +1989,13 @@ WITH controles AS (
 filas AS (
   SELECT 1 AS orden,
          'Tablas de datos' AS control,
-         CASE WHEN tablas = 11 THEN 'OK' ELSE 'FALTA' END AS estado,
-         tablas || ' de 11' AS detalle
+         CASE WHEN tablas = 15 THEN 'OK' ELSE 'FALTA' END AS estado,
+         tablas || ' de 15' AS detalle
   FROM controles
   UNION ALL
   SELECT 2, 'Funciones del sistema',
-         CASE WHEN funciones = 10 THEN 'OK' ELSE 'FALTA' END,
-         funciones || ' de 10'
+         CASE WHEN funciones = 12 THEN 'OK' ELSE 'FALTA' END,
+         funciones || ' de 12'
   FROM controles
   UNION ALL
   SELECT 3, 'Reglas de acceso a los datos',
@@ -1632,14 +2019,14 @@ filas AS (
   UNION ALL
   SELECT 6,
          '>>> RESULTADO',
-         CASE WHEN tablas = 11 AND funciones = 10 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 15 AND funciones = 12 AND deposito = 1 AND reglas_archivos = 4
               THEN 'TODO LISTO'
-              WHEN tablas = 11 AND funciones = 10 AND deposito = 1
+              WHEN tablas = 15 AND funciones = 12 AND deposito = 1
               THEN 'CASI'
               ELSE 'REVISAR' END,
-         CASE WHEN tablas = 11 AND funciones = 10 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 15 AND funciones = 12 AND deposito = 1 AND reglas_archivos = 4
               THEN 'Ya podes conectar la web. Seguí con el paso 3 del README.'
-              WHEN tablas = 11 AND funciones = 10 AND deposito = 1
+              WHEN tablas = 15 AND funciones = 12 AND deposito = 1
               THEN 'Falta solo lo de la fila 5. Todo lo demas quedo instalado.'
               ELSE 'Algo no se creo: volve a pegar el archivo completo y correlo de nuevo.' END
   FROM controles

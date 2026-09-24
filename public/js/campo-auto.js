@@ -40,7 +40,14 @@ export function campoAuto({
   leerValor = (el) => el.value,
   envolver = (valor, nombre) => ({ [nombre]: valor }),
   alConfirmar,
-  claveExtra = ''
+  claveExtra = '',
+  // Para usar el mismo campo con otra cosa que no sea una venta (por
+  // ejemplo una multa): que operacion encolar, con que datos y que clave.
+  operacion = 'editar_venta',
+  armarArgs,
+  clave,
+  // Si devuelve un texto, el valor no se manda y se muestra ese error.
+  validar
 }) {
   const marca = h('span', { class: 'autoguardado__marca' });
   const contenedor = h(
@@ -58,14 +65,20 @@ export function campoAuto({
   const guardar = () => {
     const valor = leerValor(control);
     if (String(valor ?? '') === String(ultimoValor ?? '')) return;
+
+    const problema = validar ? validar(valor) : '';
+    if (problema) {
+      marcar(contenedor, marca, 'error', problema);
+      return;
+    }
     ultimoValor = valor;
 
     marcar(contenedor, marca, 'guardando', 'Guardando…');
 
     encolar({
-      clave: `venta:${ventaId}:${campo}${claveExtra}`,
-      operacion: 'editar_venta',
-      args: { id: ventaId, datos: envolver(valor, campo) },
+      clave: clave || `venta:${ventaId}:${campo}${claveExtra}`,
+      operacion,
+      args: armarArgs ? armarArgs(valor) : { id: ventaId, datos: envolver(valor, campo) },
       descripcion: etiqueta || campo,
       alConfirmar: (datos) => {
         marcar(contenedor, marca, 'ok', 'Guardado ✓');

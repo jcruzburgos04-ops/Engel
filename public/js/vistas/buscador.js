@@ -1,11 +1,12 @@
 import { api } from '../api.js';
 import {
-  h, vaciar, fecha, fechaHora, tamano, numero, avisar, campoDominio, etiquetaDominio,
+  h, vaciar, fecha, fechaHora, tamano, numero, avisar, etiquetaDominio,
   etiquetaEstadoVenta, etiquetaTenencia, descripcionVehiculo, vacio, ESTADOS_DOCUMENTO
 } from '../util.js';
 import { encabezado } from '../app.js';
 import { descargarArchivo } from '../descargas.js';
 import { botonZip } from './documentos-ui.js';
+import { campoDominioSugerido } from '../sugeridor.js';
 
 function fichaVehiculo(vehiculo) {
   const filas = [
@@ -24,7 +25,9 @@ function fichaVehiculo(vehiculo) {
       etiquetaDominio(vehiculo.dominio),
       h('span', {}, descripcionVehiculo(vehiculo)),
       etiquetaTenencia(vehiculo.tenencia),
-      h('span', { class: 'derecha' }, botonZip(vehiculo.dominio, '⬇️ Descargar toda la documentacion'))
+      h('span', { class: 'derecha', style: 'display:flex;gap:.4rem;flex-wrap:wrap' },
+        h('a', { class: 'boton boton--chico', href: `#/infracciones/${vehiculo.dominio}` }, '🚨 Infracciones'),
+        botonZip(vehiculo.dominio, '⬇️ Descargar toda la documentacion'))
     ),
     h(
       'div',
@@ -131,105 +134,13 @@ function tablaDocumentos(documentos) {
 }
 
 export async function vistaBuscador({ dominio } = {}) {
-  const entrada = campoDominio({
+  const resultados = h('div', {});
+  const { contenedor: sugeridor, entrada, cerrar: cerrarSugerencias } = campoDominioSugerido({
     placeholder: 'AB123CD',
     style: 'font-size:1.15rem;padding:.7rem .9rem',
-    onInput: () => pedirSugerencias(entrada.value)
+    // Al elegir una sugerencia se busca sola, sin apretar Buscar.
+    alElegir: (elegido) => buscar(elegido)
   });
-  const resultados = h('div', {});
-
-  // ---------- Sugerencias mientras se escribe ----------
-  const lista = h('div', { class: 'sugerencias', role: 'listbox', hidden: true });
-  let sugerencias = [];
-  let marcada = -1;
-  let reloj = null;
-  let ultimoPedido = 0;
-
-  function cerrarSugerencias() {
-    lista.hidden = true;
-    marcada = -1;
-  }
-
-  function marcar(indice) {
-    marcada = indice;
-    [...lista.children].forEach((fila, i) => fila.classList.toggle('sugerencia--activa', i === marcada));
-  }
-
-  function elegir(sugerencia) {
-    entrada.value = sugerencia.dominio;
-    cerrarSugerencias();
-    buscar(sugerencia.dominio);
-  }
-
-  function dibujarSugerencias() {
-    vaciar(lista);
-    if (!sugerencias.length) return cerrarSugerencias();
-
-    sugerencias.forEach((s, i) => {
-      lista.append(
-        h(
-          'div',
-          {
-            class: 'sugerencia',
-            role: 'option',
-            // mousedown en vez de click: el click llega despues del blur y la
-            // lista ya estaria cerrada.
-            onMousedown: (e) => { e.preventDefault(); elegir(s); },
-            onMouseenter: () => marcar(i)
-          },
-          etiquetaDominio(s.dominio),
-          h('span', { class: 'sugerencia__texto' },
-            [s.descripcion, s.anio].filter(Boolean).join(' · ') || 'Sin marca ni modelo'),
-          h('span', { class: 'sugerencia__papeles' },
-            s.documentos ? `${s.aprobados}/${s.documentos} papeles` : 'sin papeles')
-        )
-      );
-    });
-
-    marcar(-1);
-    lista.hidden = false;
-    return undefined;
-  }
-
-  // Se espera un momento entre tecla y tecla para no pedirle una consulta a
-  // la base por cada letra.
-  function pedirSugerencias(valor) {
-    clearTimeout(reloj);
-    const texto = String(valor || '').replace(/[^A-Za-z0-9]/g, '');
-    if (!texto) {
-      sugerencias = [];
-      cerrarSugerencias();
-      return;
-    }
-
-    reloj = setTimeout(async () => {
-      const miPedido = ++ultimoPedido;
-      const encontradas = await api.sugerirDominios(texto);
-      // Si mientras tanto se siguio escribiendo, esta respuesta ya no sirve.
-      if (miPedido !== ultimoPedido || entrada.value.replace(/[^A-Z0-9]/g, '') !== texto.toUpperCase()) return;
-      sugerencias = encontradas;
-      dibujarSugerencias();
-    }, 150);
-  }
-
-  entrada.addEventListener('keydown', (e) => {
-    if (lista.hidden || !sugerencias.length) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      marcar((marcada + 1) % sugerencias.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      marcar(marcada <= 0 ? sugerencias.length - 1 : marcada - 1);
-    } else if (e.key === 'Enter' && marcada >= 0) {
-      e.preventDefault();
-      elegir(sugerencias[marcada]);
-    } else if (e.key === 'Escape') {
-      cerrarSugerencias();
-    }
-  });
-
-  entrada.addEventListener('blur', () => cerrarSugerencias());
-  entrada.addEventListener('focus', () => { if (sugerencias.length) dibujarSugerencias(); });
 
   async function buscar(valor) {
     const limpio = String(valor || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -268,7 +179,7 @@ export async function vistaBuscador({ dominio } = {}) {
     h(
       'div',
       { style: 'display:flex;gap:.5rem;align-items:stretch' },
-      h('div', { class: 'sugeridor' }, entrada, lista),
+      sugeridor,
       h('button', { class: 'boton boton--primario', type: 'submit' }, 'Buscar')
     )
   );

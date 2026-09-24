@@ -20,6 +20,16 @@ function extraerFuncion(archivo, nombre) {
   return texto.slice(inicio, fin + 4);
 }
 
+// Extrae un bloque marcado en el codigo con "-- >>> nombre" y "-- <<< nombre".
+// Asi las tablas y reglas nuevas se escriben una sola vez, en su archivo.
+function extraerBloque(archivo, nombre) {
+  const texto = fs.readFileSync(path.join(SUPA, archivo), 'utf8');
+  const inicio = texto.indexOf(`-- >>> ${nombre}\n`);
+  const fin = texto.indexOf(`-- <<< ${nombre}`, inicio);
+  if (inicio === -1 || fin === -1) throw new Error(`No se encontro el bloque ${nombre} en ${archivo}`);
+  return texto.slice(inicio + `-- >>> ${nombre}\n`.length, fin).trim();
+}
+
 // Todas las funciones que cambiaron desde la primera instalacion.
 const FUNCIONES = [
   ['03-funciones.sql', 'version_esquema'],
@@ -32,7 +42,21 @@ const FUNCIONES = [
   ['04-consultas.sql', 'venta_completa'],
   ['04-consultas.sql', 'listar_ventas'],
   ['04-consultas.sql', 'panel_documentacion'],
-  ['04-consultas.sql', 'estadisticas']
+  ['04-consultas.sql', 'estadisticas'],
+  ['04-consultas.sql', 'exportar_todo'],
+  ['03-funciones.sql', 'guardar_infraccion'],
+  ['03-funciones.sql', 'registrar_consulta_infracciones'],
+  ['04-consultas.sql', 'infracciones_de_dominio'],
+  ['04-consultas.sql', 'listar_infracciones']
+];
+
+// Funciones nuevas que solo puede usar quien inicio sesion.
+const FUNCIONES_NUEVAS = [
+  'sugerir_dominios(text, integer)',
+  'guardar_infraccion(jsonb)',
+  'registrar_consulta_infracciones(text, bigint, text)',
+  'infracciones_de_dominio(text)',
+  'listar_infracciones(text, text)'
 ];
 
 const salida = `-- =====================================================================
@@ -46,6 +70,7 @@ const salida = `-- =============================================================
 --   3. Los estados de la documentacion pasan a ser:
 --      Faltante -> Pedido -> En proceso -> Aprobado.
 --   4. El buscador sugiere dominios mientras se escribe.
+--   5. Infracciones: multas de cada auto, paginas de consulta y pagos.
 --
 -- Se puede correr aunque ya hayas aplicado alguno: no repite nada.
 -- Al final aparece una tabla con el resultado.
@@ -54,18 +79,25 @@ const salida = `-- =============================================================
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- 1. Las funciones primero
+-- 0. Tablas nuevas de infracciones
 -- ---------------------------------------------------------------------
--- Tienen que actualizarse ANTES de tocar las tablas: si no, entre un paso
--- y el otro quedan apuntando a columnas que ya no existen y cargar una
--- venta falla.
+-- Van antes que las funciones porque algunas las usan.
+
+${extraerBloque('01-esquema.sql', 'infracciones')}
+
+-- ---------------------------------------------------------------------
+-- 1. Las funciones
+-- ---------------------------------------------------------------------
+-- Tienen que actualizarse ANTES de tocar las columnas viejas: si no, entre
+-- un paso y el otro quedan apuntando a columnas que ya no existen y cargar
+-- una venta falla.
 
 ${FUNCIONES.map(([archivo, nombre]) => extraerFuncion(archivo, nombre)).join('\n\n')}
 
 -- ---------------------------------------------------------------------
 -- 2. Sacar chasis y motor
 -- ---------------------------------------------------------------------
--- Si tenias alguno cargado, el paso 4 te avisa antes de que se pierda.
+-- Ya no se piden en la carga; los datos de esas dos columnas se descartan.
 
 ALTER TABLE public.vehiculos DROP COLUMN IF EXISTS nro_chasis;
 ALTER TABLE public.vehiculos DROP COLUMN IF EXISTS nro_motor;
@@ -125,14 +157,22 @@ BEGIN
 END
 $migracion$;
 
-REVOKE ALL ON FUNCTION public.sugerir_dominios(text, integer) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.sugerir_dominios(text, integer) TO authenticated;
+-- ---------------------------------------------------------------------
+-- 4. Reglas de acceso de las infracciones
+-- ---------------------------------------------------------------------
+
+${extraerBloque('02-seguridad.sql', 'infracciones')}
+
+${extraerBloque('06-permisos.sql', 'infracciones')}
+
+${FUNCIONES_NUEVAS.map((f) => `REVOKE ALL ON FUNCTION public.${f} FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.${f} TO authenticated;`).join('\n')}
 GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
 
 NOTIFY pgrst, 'reload schema';
 
 -- ---------------------------------------------------------------------
--- 4. Comprobacion
+-- 5. Comprobacion
 -- ---------------------------------------------------------------------
 
 SELECT control, estado, detalle FROM (
@@ -157,7 +197,7 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 3 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 4 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
   SELECT 5, 'Sugerencias del buscador',
@@ -165,7 +205,14 @@ SELECT control, estado, detalle FROM (
               THEN 'OK' ELSE 'FALTA' END,
          'el buscador completa solo mientras escribis'
   UNION ALL
-  SELECT 6, 'Tus datos',
+  SELECT 6, 'Infracciones',
+         CASE WHEN (SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
+                      AND tablename IN ('portales_infracciones', 'infracciones',
+                                        'infracciones_archivos', 'consultas_infracciones')) = 4
+              THEN 'OK' ELSE 'FALTA' END,
+         'nuevo menu para cargar multas y seguir los pagos'
+  UNION ALL
+  SELECT 7, 'Tus datos',
          'INFO',
          (SELECT count(*) FROM public.ventas) || ' venta(s) · '
          || (SELECT count(*) FROM public.vehiculos) || ' auto(s) · '

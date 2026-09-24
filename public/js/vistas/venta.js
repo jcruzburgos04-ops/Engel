@@ -199,7 +199,9 @@ export async function vistaVenta({ id }) {
         { class: 'tarjeta__titulo' },
         '🚗 Auto vendido',
         h('span', { class: 'tenue' }, `Dominio ${v.dominio} (no se cambia desde aca)`),
-        h('span', { class: 'derecha' }, h('a', { class: 'boton boton--chico', href: `#/buscador/${v.dominio}` }, 'Ver ficha del dominio'))
+        h('span', { class: 'derecha', style: 'display:flex;gap:.4rem;flex-wrap:wrap' },
+          h('a', { class: 'boton boton--chico', href: `#/infracciones/${v.dominio}` }, '🚨 Infracciones'),
+          h('a', { class: 'boton boton--chico', href: `#/buscador/${v.dominio}` }, 'Ver ficha del dominio'))
       ),
       h(
         'div',

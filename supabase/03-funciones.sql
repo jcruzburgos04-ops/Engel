@@ -53,9 +53,10 @@ $$;
 --   1 = primera instalacion
 --   2 = patentes de moto, sin chasis/motor, estados nuevos de documentacion
 --   3 = sugerencias de dominio mientras se escribe en el buscador
+--   4 = infracciones: multas por auto, paginas de consulta y pagos
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 3 $$;
+AS $$ SELECT 4 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -449,5 +450,91 @@ BEGIN
     v_copia, NULL);
 
   RETURN v_rutas;
+END;
+$$;
+
+-- ---------------------------------------------------------------------
+-- Infracciones
+-- ---------------------------------------------------------------------
+
+-- Carga una multa. Si el dominio todavia no estaba en el sistema (un auto
+-- en stock, por ejemplo) se da de alta con los datos que vengan.
+CREATE OR REPLACE FUNCTION public.guardar_infraccion(p_datos jsonb)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_vehiculo bigint;
+  v_portal bigint := NULLIF(p_datos ->> 'portal_id', '')::bigint;
+  v_jurisdiccion text := public.txt(p_datos, 'jurisdiccion', 120);
+  v_monto_texto text := NULLIF(trim(p_datos ->> 'monto'), '');
+  v_estado text := COALESCE(NULLIF(p_datos ->> 'estado', ''), 'impaga');
+  v_id bigint;
+BEGIN
+  IF NOT public.es_miembro() THEN
+    RAISE EXCEPTION 'No tenes permisos para cargar infracciones.' USING ERRCODE = '42501';
+  END IF;
+
+  IF v_monto_texto IS NOT NULL AND v_monto_texto !~ '^[0-9]+(\.[0-9]{1,2})?$' THEN
+    RAISE EXCEPTION 'El monto "%" no es un numero valido.', v_monto_texto USING ERRCODE = '22023';
+  END IF;
+
+  IF v_estado NOT IN ('impaga', 'en_gestion', 'pagada', 'anulada') THEN
+    RAISE EXCEPTION 'Estado de infraccion desconocido: %', v_estado USING ERRCODE = '22023';
+  END IF;
+
+  -- guardar_vehiculo valida el dominio y no pisa los datos que ya habia.
+  v_vehiculo := public.guardar_vehiculo(jsonb_build_object(
+    'dominio', p_datos ->> 'dominio',
+    'marca', p_datos ->> 'marca',
+    'modelo', p_datos ->> 'modelo'
+  ));
+
+  IF v_portal IS NOT NULL AND v_jurisdiccion = '' THEN
+    SELECT nombre INTO v_jurisdiccion FROM public.portales_infracciones WHERE id = v_portal;
+  END IF;
+
+  INSERT INTO public.infracciones (
+    vehiculo_id, portal_id, jurisdiccion, acta, fecha, descripcion, monto,
+    estado, fecha_pago, observaciones, creado_por, actualizado_por
+  ) VALUES (
+    v_vehiculo,
+    v_portal,
+    COALESCE(v_jurisdiccion, ''),
+    public.txt(p_datos, 'acta', 80),
+    NULLIF(p_datos ->> 'fecha', '')::date,
+    public.txt(p_datos, 'descripcion', 500),
+    v_monto_texto::numeric,
+    v_estado,
+    NULLIF(p_datos ->> 'fecha_pago', '')::date,
+    public.txt(p_datos, 'observaciones', 1000),
+    auth.uid(),
+    auth.uid()
+  )
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+-- Deja asentado que alguien reviso una pagina de consulta para un dominio.
+CREATE OR REPLACE FUNCTION public.registrar_consulta_infracciones(
+  p_dominio text,
+  p_portal_id bigint,
+  p_resultado text
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NOT public.dominio_valido(p_dominio) THEN
+    RAISE EXCEPTION 'El dominio "%" no tiene un formato valido.', p_dominio USING ERRCODE = '22023';
+  END IF;
+  IF p_resultado NOT IN ('sin_infracciones', 'con_infracciones') THEN
+    RAISE EXCEPTION 'Resultado de consulta desconocido: %', p_resultado USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO public.consultas_infracciones (dominio, portal_id, resultado, consultado_por)
+  VALUES (public.normalizar_dominio(p_dominio), p_portal_id, p_resultado, auth.uid());
 END;
 $$;

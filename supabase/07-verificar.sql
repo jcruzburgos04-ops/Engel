@@ -12,12 +12,15 @@ WITH controles AS (
   SELECT
     (SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
        AND tablename IN ('perfiles','invitaciones','vehiculos','ventas','permutas',
-                         'documentos','archivos','notas','auditoria','borradores','estado_datos')) AS tablas,
+                         'documentos','archivos','notas','auditoria','borradores','estado_datos',
+                         'portales_infracciones','infracciones','infracciones_archivos',
+                         'consultas_infracciones')) AS tablas,
     (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'public'
         AND p.proname IN ('crear_venta','actualizar_venta','venta_completa','listar_ventas',
                           'buscar_dominio','panel_documentacion','estadisticas','es_miembro',
-                          'version_esquema','sugerir_dominios')) AS funciones,
+                          'version_esquema','sugerir_dominios',
+                          'infracciones_de_dominio','guardar_infraccion')) AS funciones,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'public') AS reglas,
     (SELECT count(*) FROM storage.buckets WHERE id = 'documentacion') AS deposito,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'storage'
@@ -26,13 +29,13 @@ WITH controles AS (
 filas AS (
   SELECT 1 AS orden,
          'Tablas de datos' AS control,
-         CASE WHEN tablas = 11 THEN 'OK' ELSE 'FALTA' END AS estado,
-         tablas || ' de 11' AS detalle
+         CASE WHEN tablas = 15 THEN 'OK' ELSE 'FALTA' END AS estado,
+         tablas || ' de 15' AS detalle
   FROM controles
   UNION ALL
   SELECT 2, 'Funciones del sistema',
-         CASE WHEN funciones = 10 THEN 'OK' ELSE 'FALTA' END,
-         funciones || ' de 10'
+         CASE WHEN funciones = 12 THEN 'OK' ELSE 'FALTA' END,
+         funciones || ' de 12'
   FROM controles
   UNION ALL
   SELECT 3, 'Reglas de acceso a los datos',
@@ -56,14 +59,14 @@ filas AS (
   UNION ALL
   SELECT 6,
          '>>> RESULTADO',
-         CASE WHEN tablas = 11 AND funciones = 10 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 15 AND funciones = 12 AND deposito = 1 AND reglas_archivos = 4
               THEN 'TODO LISTO'
-              WHEN tablas = 11 AND funciones = 10 AND deposito = 1
+              WHEN tablas = 15 AND funciones = 12 AND deposito = 1
               THEN 'CASI'
               ELSE 'REVISAR' END,
-         CASE WHEN tablas = 11 AND funciones = 10 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 15 AND funciones = 12 AND deposito = 1 AND reglas_archivos = 4
               THEN 'Ya podes conectar la web. Seguí con el paso 3 del README.'
-              WHEN tablas = 11 AND funciones = 10 AND deposito = 1
+              WHEN tablas = 15 AND funciones = 12 AND deposito = 1
               THEN 'Falta solo lo de la fila 5. Todo lo demas quedo instalado.'
               ELSE 'Algo no se creo: volve a pegar el archivo completo y correlo de nuevo.' END
   FROM controles

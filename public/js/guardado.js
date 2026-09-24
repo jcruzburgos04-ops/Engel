@@ -13,6 +13,7 @@ import { api } from './api.js';
 const OPERACIONES = {
   editar_venta: ({ id, datos }) => api.editarVenta(id, datos),
   editar_documento: ({ id, cambios }) => api.editarDocumento(id, cambios),
+  editar_infraccion: ({ id, cambios }) => api.editarInfraccion(id, cambios),
   guardar_borrador: ({ clave, contenido }) => api.guardarBorrador(clave, contenido)
 };
 
@@ -127,7 +128,9 @@ async function procesar() {
       // hay permisos, reintentar no lo va a arreglar: se avisa y se saca.
       const sinSentidoReintentar =
         error.definitivo ||
-        ['22023', 'P0002', '23505', '42501', '23503', '23514'].includes(error.codigo);
+        // 22P02: un dato con formato invalido; PGRST116: la fila ya no existe.
+        ['22023', 'P0002', '23505', '42501', '23503', '23502', '23514', '22P02', '22007', '22008', 'PGRST116']
+          .includes(error.codigo);
 
       if (sinSentidoReintentar) {
         cola.shift();

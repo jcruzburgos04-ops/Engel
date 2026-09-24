@@ -11,11 +11,13 @@ import { vistaVenta } from './vistas/venta.js';
 import { vistaDocumentacion } from './vistas/documentacion.js';
 import { vistaBuscador } from './vistas/buscador.js';
 import { vistaUsuarios } from './vistas/usuarios.js';
+import { vistaInfracciones, vistaInfraccionesDominio } from './vistas/infracciones.js';
 
 export const estado = {
   usuario: null,
   config: null,
-  documentosPendientes: 0
+  documentosPendientes: 0,
+  infraccionesAbiertas: 0
 };
 
 const RUTAS = [
@@ -24,6 +26,7 @@ const RUTAS = [
   { ruta: 'ventas/nueva', titulo: 'Cargar venta', icono: '➕', vista: vistaNuevaVenta },
   { ruta: 'documentacion', titulo: 'Documentacion', icono: '📁', vista: vistaDocumentacion, globo: 'documentos' },
   { ruta: 'buscador', titulo: 'Buscar dominio', icono: '🔎', vista: vistaBuscador },
+  { ruta: 'infracciones', titulo: 'Infracciones', icono: '🚨', vista: vistaInfracciones, globo: 'infracciones' },
   { ruta: 'usuarios', titulo: 'Equipo', icono: '👥', vista: vistaUsuarios, soloAdmin: true }
 ];
 
@@ -62,19 +65,50 @@ function resolver(ruta) {
     return { definicion: RUTAS.find((r) => r.ruta === 'buscador'), params: { dominio: decodeURIComponent(dominio[1]) } };
   }
 
+  const multas = ruta.match(/^infracciones\/(.+)$/);
+  if (multas) {
+    return {
+      definicion: { ruta: 'infracciones', titulo: 'Infracciones del dominio', vista: vistaInfraccionesDominio },
+      params: { dominio: decodeURIComponent(multas[1]) }
+    };
+  }
+
   const definicion = RUTAS.find((r) => r.ruta === ruta);
   return definicion ? { definicion, params: {} } : null;
 }
 
 // ---------- Estructura de la aplicacion ----------
 
+function cantidadDelGlobo(globo) {
+  if (globo === 'documentos') return estado.documentosPendientes;
+  if (globo === 'infracciones') return estado.infraccionesAbiertas;
+  return 0;
+}
+
+// Actualiza los numeritos del menu sin redibujar la pantalla.
+function actualizarGlobos() {
+  document.querySelectorAll('.menu__link[data-globo]').forEach((link) => {
+    const cantidad = cantidadDelGlobo(link.dataset.globo);
+    let globo = link.querySelector('.globo');
+    if (cantidad > 0) {
+      if (!globo) {
+        globo = h('span', { class: 'globo' });
+        link.append(globo);
+      }
+      globo.textContent = cantidad > 99 ? '99+' : String(cantidad);
+    } else if (globo) {
+      globo.remove();
+    }
+  });
+}
+
 function menuLateral(rutaActiva) {
   const links = RUTAS.filter((r) => !r.soloAdmin || estado.usuario.rol === 'admin').map((r) => {
     const activo = rutaActiva === r.ruta || (r.ruta === 'ventas' && /^ventas\/\d+$/.test(rutaActiva));
-    const pendientes = r.globo === 'documentos' ? estado.documentosPendientes : 0;
+    const pendientes = cantidadDelGlobo(r.globo);
     return h(
       'a',
-      { class: `menu__link${activo ? ' activo' : ''}`, href: `#/${r.ruta}` },
+      { class: `menu__link${activo ? ' activo' : ''}`, href: `#/${r.ruta}`, dataset: { globo: r.globo || '' } },
       h('span', { class: 'icono' }, r.icono),
       h('span', { class: 'texto' }, r.titulo),
       pendientes > 0 ? h('span', { class: 'globo' }, pendientes > 99 ? '99+' : String(pendientes)) : null
@@ -158,6 +192,12 @@ async function dibujar() {
     if (miTurno !== dibujadoActual) return undefined;
     vaciar(contenido).append(vista);
     marcarComoVisto();
+    // En el celular el menu se desplaza de costado: que se vea donde estas.
+    const activo = raiz.querySelector('.menu__link.activo');
+    const fila = activo && activo.parentElement;
+    if (fila && fila.scrollWidth > fila.clientWidth) {
+      fila.scrollLeft += activo.getBoundingClientRect().left - fila.getBoundingClientRect().left - 8;
+    }
     window.scrollTo(0, 0);
   } catch (error) {
     if (miTurno !== dibujadoActual) return undefined;
@@ -378,9 +418,12 @@ export async function refrescarPendientes() {
   try {
     const stats = await api.estadisticas();
     estado.documentosPendientes = stats.documentos_pendientes || 0;
+    estado.infraccionesAbiertas = stats.infracciones_abiertas || 0;
   } catch {
     estado.documentosPendientes = 0;
+    estado.infraccionesAbiertas = 0;
   }
+  actualizarGlobos();
 }
 
 cuandoSePierdeLaSesion(() => {

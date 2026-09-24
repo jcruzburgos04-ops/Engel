@@ -343,3 +343,98 @@ CREATE POLICY borradores_propios ON public.borradores FOR ALL
 -- Contador de cambios: lo lee cualquiera del equipo.
 DROP POLICY IF EXISTS estado_ver ON public.estado_datos;
 CREATE POLICY estado_ver ON public.estado_datos FOR SELECT USING (public.es_miembro());
+
+-- >>> infracciones
+-- ---------------------------------------------------------------------
+-- Infracciones: historial, marcas de tiempo y reglas de acceso
+-- ---------------------------------------------------------------------
+
+-- Al marcar una multa como pagada se anota la fecha de hoy, si no se puso
+-- otra. Si se vuelve atras, la fecha de pago se borra para no confundir.
+CREATE OR REPLACE FUNCTION public.infraccion_al_cambiar_estado()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.estado = 'pagada' AND NEW.fecha_pago IS NULL THEN
+    NEW.fecha_pago := current_date;
+  ELSIF TG_OP = 'UPDATE' AND OLD.estado = 'pagada' AND NEW.estado <> 'pagada'
+        AND NEW.fecha_pago IS NOT DISTINCT FROM OLD.fecha_pago THEN
+    NEW.fecha_pago := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_infraccion_estado ON public.infracciones;
+CREATE TRIGGER trg_infraccion_estado
+  BEFORE INSERT OR UPDATE ON public.infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.infraccion_al_cambiar_estado();
+
+DROP TRIGGER IF EXISTS trg_tocar_infracciones ON public.infracciones;
+CREATE TRIGGER trg_tocar_infracciones BEFORE UPDATE ON public.infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.tocar_actualizado_en();
+
+DROP TRIGGER IF EXISTS trg_tocar_portales ON public.portales_infracciones;
+CREATE TRIGGER trg_tocar_portales BEFORE UPDATE ON public.portales_infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.tocar_actualizado_en();
+
+DROP TRIGGER IF EXISTS trg_auditar_infracciones ON public.infracciones;
+CREATE TRIGGER trg_auditar_infracciones
+  AFTER INSERT OR UPDATE OR DELETE ON public.infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.auditar('', 'infraccion');
+
+DROP TRIGGER IF EXISTS trg_auditar_infracciones_archivos ON public.infracciones_archivos;
+CREATE TRIGGER trg_auditar_infracciones_archivos
+  AFTER INSERT OR DELETE ON public.infracciones_archivos
+  FOR EACH ROW EXECUTE FUNCTION public.auditar('', 'comprobante de infraccion');
+
+DROP TRIGGER IF EXISTS trg_auditar_portales ON public.portales_infracciones;
+CREATE TRIGGER trg_auditar_portales
+  AFTER INSERT OR UPDATE OR DELETE ON public.portales_infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.auditar('', 'pagina de consulta');
+
+DROP TRIGGER IF EXISTS trg_auditar_consultas ON public.consultas_infracciones;
+CREATE TRIGGER trg_auditar_consultas
+  AFTER INSERT ON public.consultas_infracciones
+  FOR EACH ROW EXECUTE FUNCTION public.auditar('', 'consulta de infracciones');
+
+ALTER TABLE public.portales_infracciones  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.infracciones           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.infracciones_archivos  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.consultas_infracciones ENABLE ROW LEVEL SECURITY;
+
+-- Todo el equipo ve, carga y edita. Borrar una multa o un comprobante
+-- tambien (un error de carga se tiene que poder corregir): el historial
+-- guarda una copia completa de lo borrado.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['portales_infracciones', 'infracciones', 'infracciones_archivos', 'consultas_infracciones']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_ver ON public.%I', t, t);
+    EXECUTE format('CREATE POLICY %I_ver ON public.%I FOR SELECT USING (public.es_miembro())', t, t);
+
+    EXECUTE format('DROP POLICY IF EXISTS %I_crear ON public.%I', t, t);
+    EXECUTE format('CREATE POLICY %I_crear ON public.%I FOR INSERT WITH CHECK (public.es_miembro())', t, t);
+  END LOOP;
+
+  FOREACH t IN ARRAY ARRAY['portales_infracciones', 'infracciones']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_editar ON public.%I', t, t);
+    EXECUTE format('CREATE POLICY %I_editar ON public.%I FOR UPDATE USING (public.es_miembro()) WITH CHECK (public.es_miembro())', t, t);
+  END LOOP;
+
+  FOREACH t IN ARRAY ARRAY['infracciones', 'infracciones_archivos']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_borrar ON public.%I', t, t);
+    EXECUTE format('CREATE POLICY %I_borrar ON public.%I FOR DELETE USING (public.es_miembro())', t, t);
+  END LOOP;
+END $$;
+
+-- Una pagina de consulta la saca solo un administrador (el resto la puede
+-- desactivar). El registro de consultas no se edita ni se borra.
+DROP POLICY IF EXISTS portales_infracciones_borrar ON public.portales_infracciones;
+CREATE POLICY portales_infracciones_borrar ON public.portales_infracciones
+  FOR DELETE USING (public.es_admin());
+-- <<< infracciones

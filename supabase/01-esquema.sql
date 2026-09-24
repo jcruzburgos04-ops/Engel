@@ -159,6 +159,82 @@ CREATE TABLE IF NOT EXISTS public.notas (
 
 CREATE INDEX IF NOT EXISTS idx_notas_venta ON public.notas (venta_id);
 
+-- >>> infracciones
+-- ---------------------------------------------------------------------
+-- Infracciones (multas de transito) de cada auto
+-- ---------------------------------------------------------------------
+
+-- Paginas de consulta de multas de cada municipio o provincia. La direccion
+-- puede llevar {dominio}: si la pagina acepta la patente en el link, se
+-- completa sola. Si no, la web copia la patente para pegarla.
+CREATE TABLE IF NOT EXISTS public.portales_infracciones (
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nombre         text NOT NULL CHECK (btrim(nombre) <> ''),
+  url            text NOT NULL CHECK (url ~* '^https?://'),
+  notas          text NOT NULL DEFAULT '',
+  orden          integer NOT NULL DEFAULT 0,
+  activo         boolean NOT NULL DEFAULT true,
+  creado_en      timestamptz NOT NULL DEFAULT now(),
+  actualizado_en timestamptz NOT NULL DEFAULT now()
+);
+
+-- Cada multa, atada al auto por su dominio. Puede ser de un auto vendido,
+-- de una permuta o de uno que esta en stock.
+CREATE TABLE IF NOT EXISTS public.infracciones (
+  id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  vehiculo_id     bigint NOT NULL REFERENCES public.vehiculos (id),
+  portal_id       bigint REFERENCES public.portales_infracciones (id) ON DELETE SET NULL,
+  -- Donde se labro (municipio, provincia). Queda escrito aunque se borre
+  -- la pagina de consulta.
+  jurisdiccion    text NOT NULL DEFAULT '',
+  acta            text NOT NULL DEFAULT '',
+  fecha           date,
+  descripcion     text NOT NULL DEFAULT '',
+  monto           numeric(14, 2) CHECK (monto IS NULL OR monto >= 0),
+  -- impaga -> en gestion (descargo, plan de pago) -> pagada. Anulada si se
+  -- cayo o prescribio.
+  estado          text NOT NULL DEFAULT 'impaga'
+                  CHECK (estado IN ('impaga', 'en_gestion', 'pagada', 'anulada')),
+  fecha_pago      date,
+  observaciones   text NOT NULL DEFAULT '',
+  creado_por      uuid REFERENCES public.perfiles (id),
+  creado_en       timestamptz NOT NULL DEFAULT now(),
+  actualizado_en  timestamptz NOT NULL DEFAULT now(),
+  actualizado_por uuid REFERENCES public.perfiles (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_infracciones_vehiculo ON public.infracciones (vehiculo_id);
+CREATE INDEX IF NOT EXISTS idx_infracciones_estado ON public.infracciones (estado);
+
+-- Comprobantes de pago y fotos del acta.
+CREATE TABLE IF NOT EXISTS public.infracciones_archivos (
+  id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  infraccion_id   bigint NOT NULL REFERENCES public.infracciones (id) ON DELETE CASCADE,
+  nombre_original text NOT NULL,
+  ruta            text NOT NULL,
+  mime            text NOT NULL DEFAULT 'application/octet-stream',
+  tamano          bigint NOT NULL DEFAULT 0,
+  subido_por      uuid REFERENCES public.perfiles (id),
+  subido_en       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_infracciones_archivos ON public.infracciones_archivos (infraccion_id);
+
+-- Registro de cada vez que alguien reviso una pagina de consulta. Sirve para
+-- distinguir "no tiene multas" de "nadie se fijo todavia".
+CREATE TABLE IF NOT EXISTS public.consultas_infracciones (
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  dominio        text NOT NULL,
+  portal_id      bigint NOT NULL REFERENCES public.portales_infracciones (id) ON DELETE CASCADE,
+  resultado      text NOT NULL CHECK (resultado IN ('sin_infracciones', 'con_infracciones')),
+  consultado_por uuid REFERENCES public.perfiles (id),
+  consultado_en  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_consultas_infracciones
+  ON public.consultas_infracciones (dominio, portal_id, consultado_en DESC);
+-- <<< infracciones
+
 -- ---------------------------------------------------------------------
 -- Historial de cambios
 -- ---------------------------------------------------------------------

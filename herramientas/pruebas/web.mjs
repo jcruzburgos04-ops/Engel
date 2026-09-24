@@ -292,7 +292,115 @@ ok(/no fue habilitado|administrador/i.test(avisoIntruso), `se le explica por que
 await captura(p3, '26-sin-invitacion');
 
 // ---------------------------------------------------------------------
-console.log('11. Si la base quedo vieja, la web lo dice');
+console.log('11. Infracciones');
+await p.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
+await p.goto(`${BASE}/#/infracciones`, { waitUntil: 'networkidle' });
+await p.waitForSelector('#paginas-de-consulta', { timeout: 15000 });
+ok(/Todavia no hay paginas/.test(await p.locator('#paginas-de-consulta').innerText()), 'arranca sin paginas de consulta');
+
+// Dos paginas: una acepta la patente en el link, la otra no.
+async function agregarPagina(nombre, url) {
+  await p.click('button:has-text("Agregar pagina")');
+  await p.waitForSelector('.modal');
+  await p.locator('.modal .campo', { hasText: 'Nombre' }).locator('input').fill(nombre);
+  await p.locator('.modal .campo', { hasText: 'Link' }).locator('input').fill(url);
+  await p.click('.modal__pie button:has-text("Guardar")');
+  await p.waitForSelector('.modal', { state: 'detached', timeout: 10000 });
+  await p.waitForSelector(`#paginas-de-consulta td:has-text("${nombre}")`, { timeout: 10000 });
+}
+await agregarPagina('CABA', `${FALSO}/portal-caba?patente={dominio}`);
+await agregarPagina('Provincia', `${FALSO}/portal-provincia`);
+const tablaPaginas = await p.locator('#paginas-de-consulta').innerText();
+ok(/Completa el dominio/.test(tablaPaginas) && /Copia el dominio/.test(tablaPaginas), 'distingue las paginas que completan el dominio solas');
+
+// Se llega al auto escribiendo el dominio y eligiendo la sugerencia.
+await p.click('.sugeridor input');
+await p.type('.sugeridor input', 'ab', { delay: 60 });
+await p.waitForSelector('.sugerencia', { timeout: 10000 });
+await p.click('.sugerencia');
+await p.waitForSelector('.portal', { timeout: 15000 });
+ok(/#\/infracciones\/AB123CD$/.test(p.url()), 'al elegir la sugerencia abre las multas del auto');
+ok((await p.locator('.portal').count()) === 2, 'hay un boton de consulta por pagina');
+
+// El boton abre la pagina del municipio con la patente ya puesta.
+const [pestanaCaba] = await Promise.all([
+  p.context().waitForEvent('page', { timeout: 10000 }),
+  p.click('a:has-text("Consultar en CABA")')
+]);
+ok(/patente=AB123CD/.test(pestanaCaba.url()), `abre CABA con el dominio en el link (${pestanaCaba.url().replace(FALSO, '')})`);
+await pestanaCaba.close();
+
+// Si la pagina no acepta la patente en el link, queda copiada para pegar.
+await p.evaluate(() => navigator.clipboard.writeText('otra cosa'));
+const [pestanaProvincia] = await Promise.all([
+  p.context().waitForEvent('page', { timeout: 10000 }),
+  p.click('a:has-text("Consultar en Provincia")')
+]);
+await pestanaProvincia.close();
+const portapapeles = await p.evaluate(() => navigator.clipboard.readText());
+ok(portapapeles === 'AB123CD', `copia el dominio para pegarlo (portapapeles: "${portapapeles}")`);
+
+// Anotar lo que se encontro.
+await p.locator('.portal', { hasText: 'Provincia' }).locator('button:has-text("No tiene")').click();
+await p.waitForSelector('.portal:has-text("Sin multas")', { timeout: 10000 });
+ok(/revisado por Juan Cruz/.test(await p.locator('.portal', { hasText: 'Provincia' }).innerText()), 'queda anotado quien reviso y que no tenia multas');
+
+await p.locator('.portal', { hasText: 'CABA' }).locator('button:has-text("Tiene multas")').click();
+await p.waitForSelector('.modal', { timeout: 10000 });
+ok((await p.locator('.modal select').first().locator('option:checked').innerText()) === 'CABA', 'al marcar que tiene multas abre la carga con CABA elegido');
+await p.locator('.modal .campo', { hasText: 'Monto' }).locator('input').fill('85.000');
+await p.locator('.modal .campo', { hasText: 'Acta' }).locator('input').fill('Q-777');
+await p.click('.modal__pie button:has-text("Guardar infraccion")');
+await p.waitForSelector('.infraccion', { timeout: 15000 });
+const encabezadoMultas = await p.locator('.encabezado').innerText();
+ok(/1 multa\(s\) por resolver/.test(encabezadoMultas) && /85\.000/.test(encabezadoMultas), 'muestra cuanto se debe');
+await p.waitForTimeout(500);
+ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '1', 'el menu avisa que hay una multa por resolver');
+await captura(p, '28-infracciones-auto');
+
+// Un monto mal escrito no se manda.
+const montoInline = p.locator('.infraccion .campo', { hasText: 'Monto' }).locator('input');
+await montoInline.fill('mucho');
+await montoInline.blur();
+await p.waitForSelector('.infraccion .autoguardado__marca--error', { timeout: 5000 });
+ok(true, 'un monto mal escrito avisa y no se guarda');
+await montoInline.fill('90.000,50');
+await montoInline.blur();
+await p.waitForSelector('.infraccion .autoguardado__marca--ok', { timeout: 10000 });
+ok(true, 'el monto corregido se guarda solo');
+
+// Marcarla pagada: se guarda sola y anota la fecha de pago.
+await p.locator('.infraccion .campo', { hasText: 'Estado' }).locator('select').selectOption('pagada');
+await p.waitForSelector('.infraccion--pagada', { timeout: 15000 });
+const hoyIso = await p.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+const fechaPago = await p.locator('.infraccion .campo', { hasText: 'Fecha de pago' }).locator('input').inputValue();
+ok(fechaPago === hoyIso, `al marcarla pagada anota la fecha de pago (${fechaPago})`);
+
+// Comprobante de pago.
+const comprobante = `${SALIDA}/comprobante-prueba.pdf`;
+fs.writeFileSync(comprobante, '%PDF-1.4 comprobante');
+await p.locator('.infraccion input[type=file]').setInputFiles(comprobante);
+await p.waitForSelector('.infraccion .archivo', { timeout: 15000 });
+ok(/comprobante-prueba\.pdf/.test(await p.locator('.infraccion').innerText()), 'el comprobante queda cargado');
+
+// Despues de recargar sigue todo.
+await p.reload({ waitUntil: 'networkidle' });
+await p.waitForSelector('.infraccion', { timeout: 15000 });
+const montoGuardado = await p.locator('.infraccion .campo', { hasText: 'Monto' }).locator('input').inputValue();
+ok(montoGuardado === '90.000,50', `el monto persiste tras recargar (${montoGuardado})`);
+ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').count()) === 0, 'pagada, deja de figurar en el menu');
+
+// El listado general.
+await p.click('a.menu__link[href="#/infracciones"]');
+await p.waitForSelector('#paginas-de-consulta', { timeout: 15000 });
+ok(/No hay infracciones con ese filtro/.test(await p.locator('.contenido').innerText()), 'el listado de por resolver queda vacio');
+await p.locator('.tarjeta', { hasText: 'Seguimiento' }).locator('select').selectOption('todas');
+await p.waitForSelector('.tarjeta:has-text("Seguimiento") td:has-text("Q-777")', { timeout: 10000 });
+ok(true, 'con "Todas" aparece la multa pagada');
+await captura(p, '29-infracciones');
+
+// ---------------------------------------------------------------------
+console.log('12. Si la base quedo vieja, la web lo dice');
 // La web se publica sola y el SQL se corre a mano: hay que avisar en castellano
 // en vez de dejar que Postgres tire un error que nadie entiende.
 const psql = (sql) =>

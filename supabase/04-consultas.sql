@@ -393,6 +393,11 @@ AS $$
     'documentos_pendientes', (SELECT count(*) FROM public.documentos d
                                 JOIN public.ventas v ON v.id = d.venta_id
                                WHERE d.estado <> 'aprobado' AND v.estado <> 'cancelado'),
+    -- Multas que todavia hay que pagar o resolver.
+    'infracciones_abiertas', (SELECT count(*) FROM public.infracciones
+                                WHERE estado IN ('impaga', 'en_gestion')),
+    'infracciones_monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM public.infracciones
+                                     WHERE estado IN ('impaga', 'en_gestion')),
     'porTenencia', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('tenencia', tenencia, 'cantidad', cantidad))
       FROM (
@@ -402,6 +407,111 @@ AS $$
         GROUP BY ve.tenencia
       ) AS t
     ), '[]'::jsonb)
+  );
+$$;
+
+-- ---------------------------------------------------------------------
+-- Infracciones
+-- ---------------------------------------------------------------------
+
+-- Todo lo de un dominio: sus multas, y las paginas de consulta con la
+-- ultima vez que alguien se fijo. Funciona aunque el dominio todavia no
+-- este cargado, asi se puede consultar antes de tener nada.
+CREATE OR REPLACE FUNCTION public.infracciones_de_dominio(p_dominio text)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  WITH d AS (SELECT public.normalizar_dominio(p_dominio) AS dominio),
+  v AS (SELECT ve.* FROM public.vehiculos ve, d WHERE ve.dominio = d.dominio),
+  i AS (SELECT inf.* FROM public.infracciones inf JOIN v ON v.id = inf.vehiculo_id)
+  SELECT jsonb_build_object(
+    'dominio', (SELECT dominio FROM d),
+    'vehiculo', (SELECT jsonb_build_object(
+                   'id', v.id, 'dominio', v.dominio, 'marca', v.marca, 'modelo', v.modelo,
+                   'anio', v.anio, 'tenencia', v.tenencia) FROM v),
+    'infracciones', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', i.id, 'portal_id', i.portal_id, 'jurisdiccion', i.jurisdiccion,
+        'acta', i.acta, 'fecha', i.fecha, 'descripcion', i.descripcion,
+        'monto', i.monto, 'estado', i.estado, 'fecha_pago', i.fecha_pago,
+        'observaciones', i.observaciones, 'creado_en', i.creado_en,
+        'creado_por_nombre', (SELECT nombre FROM public.perfiles p WHERE p.id = i.creado_por),
+        'archivos', COALESCE((
+          SELECT jsonb_agg(jsonb_build_object(
+            'id', a.id, 'nombre_original', a.nombre_original, 'ruta', a.ruta,
+            'mime', a.mime, 'tamano', a.tamano, 'subido_en', a.subido_en
+          ) ORDER BY a.id DESC)
+          FROM public.infracciones_archivos a WHERE a.infraccion_id = i.id
+        ), '[]'::jsonb)
+      ) ORDER BY CASE WHEN i.estado IN ('impaga', 'en_gestion') THEN 0 ELSE 1 END,
+                 i.fecha DESC NULLS LAST, i.id DESC)
+      FROM i
+    ), '[]'::jsonb),
+    'portales', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', po.id, 'nombre', po.nombre, 'url', po.url, 'notas', po.notas,
+        'ultima_consulta', (
+          SELECT jsonb_build_object(
+            'resultado', c.resultado, 'consultado_en', c.consultado_en,
+            'consultado_por_nombre', (SELECT nombre FROM public.perfiles p WHERE p.id = c.consultado_por))
+          FROM public.consultas_infracciones c, d
+          WHERE c.portal_id = po.id AND c.dominio = d.dominio
+          ORDER BY c.consultado_en DESC LIMIT 1)
+      ) ORDER BY po.orden, po.nombre)
+      FROM public.portales_infracciones po WHERE po.activo
+    ), '[]'::jsonb),
+    'resumen', jsonb_build_object(
+      'abiertas', (SELECT count(*) FROM i WHERE estado IN ('impaga', 'en_gestion')),
+      'monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM i WHERE estado IN ('impaga', 'en_gestion')),
+      'pagadas', (SELECT count(*) FROM i WHERE estado = 'pagada'),
+      'total', (SELECT count(*) FROM i)
+    )
+  );
+$$;
+
+-- Listado general para hacer el seguimiento de pagos.
+--   p_filtro: 'abiertas' (impagas y en gestion), 'impagas', 'pagadas', 'todas'
+CREATE OR REPLACE FUNCTION public.listar_infracciones(p_filtro text DEFAULT 'abiertas', p_q text DEFAULT '')
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  WITH base AS (
+    SELECT i.*, v.dominio, v.marca, v.modelo, v.anio
+    FROM public.infracciones i JOIN public.vehiculos v ON v.id = i.vehiculo_id
+    WHERE (public.normalizar_dominio(p_q) = ''
+           OR v.dominio LIKE '%' || public.normalizar_dominio(p_q) || '%'
+           OR i.jurisdiccion ILIKE '%' || btrim(COALESCE(p_q, '')) || '%'
+           OR i.acta ILIKE '%' || btrim(COALESCE(p_q, '')) || '%')
+  ),
+  filtradas AS (
+    SELECT * FROM base
+    WHERE CASE COALESCE(NULLIF(p_filtro, ''), 'abiertas')
+            WHEN 'abiertas' THEN estado IN ('impaga', 'en_gestion')
+            WHEN 'impagas' THEN estado = 'impaga'
+            WHEN 'pagadas' THEN estado = 'pagada'
+            ELSE true
+          END
+  )
+  SELECT jsonb_build_object(
+    'filas', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', f.id, 'dominio', f.dominio,
+        'vehiculo', NULLIF(btrim(concat_ws(' ', f.marca, f.modelo, f.anio::text)), ''),
+        'jurisdiccion', f.jurisdiccion, 'acta', f.acta, 'fecha', f.fecha,
+        'descripcion', f.descripcion, 'monto', f.monto, 'estado', f.estado,
+        'fecha_pago', f.fecha_pago,
+        'archivos', (SELECT count(*) FROM public.infracciones_archivos a WHERE a.infraccion_id = f.id)
+      ) ORDER BY CASE WHEN f.estado IN ('impaga', 'en_gestion') THEN 0 ELSE 1 END,
+                 f.fecha DESC NULLS LAST, f.id DESC)
+      FROM filtradas f
+    ), '[]'::jsonb),
+    'resumen', jsonb_build_object(
+      'abiertas', (SELECT count(*) FROM base WHERE estado IN ('impaga', 'en_gestion')),
+      'monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM base WHERE estado IN ('impaga', 'en_gestion')),
+      'autos_con_abiertas', (SELECT count(DISTINCT vehiculo_id) FROM base WHERE estado IN ('impaga', 'en_gestion')),
+      'pagadas', (SELECT count(*) FROM base WHERE estado = 'pagada'),
+      'total', (SELECT count(*) FROM base)
+    )
   );
 $$;
 
@@ -437,6 +547,10 @@ AS $$
     'documentos', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.documentos t), '[]'::jsonb),
     'archivos', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.archivos t), '[]'::jsonb),
     'notas', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.notas t), '[]'::jsonb),
+    'portales_infracciones', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.portales_infracciones t), '[]'::jsonb),
+    'infracciones', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.infracciones t), '[]'::jsonb),
+    'infracciones_archivos', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.infracciones_archivos t), '[]'::jsonb),
+    'consultas_infracciones', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.consultas_infracciones t), '[]'::jsonb),
     'auditoria', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.auditoria t), '[]'::jsonb)
   );
 $$;
@@ -453,6 +567,8 @@ BEGIN
     'agregar_permuta(bigint, jsonb)', 'quitar_permuta(bigint)', 'borrar_venta(bigint)',
     'venta_completa(bigint)', 'listar_ventas(jsonb)', 'listar_ventas_completo(jsonb)',
     'buscar_dominio(text)', 'sugerir_dominios(text, integer)',
+    'infracciones_de_dominio(text)', 'listar_infracciones(text, text)',
+    'guardar_infraccion(jsonb)', 'registrar_consulta_infracciones(text, bigint, text)',
     'panel_documentacion(boolean, text)', 'estadisticas()',
     'historial_venta(bigint)', 'exportar_todo()', 'documentacion_de_venta(bigint)',
     'guardar_vehiculo(jsonb)', 'actualizar_vehiculo(bigint, jsonb)',
