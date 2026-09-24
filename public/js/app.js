@@ -1,6 +1,6 @@
 import { api, cuandoSePierdeLaSesion } from './api.js';
 import { config, estaConfigurado } from './config.js';
-import { h, vaciar, avisar, abrirModal, campo } from './util.js';
+import { h, vaciar, avisar, abrirModal, campo, hayTrabajoEnCurso } from './util.js';
 import { iniciarGuardado, hayCambiosPendientes, esperarGuardado } from './guardado.js';
 import { iniciarSincronizacion, marcarComoVisto, detenerSincronizacion } from './sincronizacion.js';
 
@@ -16,15 +16,15 @@ import { vistaInfracciones, vistaInfraccionesDominio } from './vistas/infraccion
 export const estado = {
   usuario: null,
   config: null,
-  documentosPendientes: 0,
   infraccionesAbiertas: 0
 };
 
 const RUTAS = [
   { ruta: 'panel', titulo: 'Panel', icono: '📊', vista: vistaPanel },
   { ruta: 'ventas', titulo: 'Ventas', icono: '🚗', vista: vistaVentas },
-  { ruta: 'ventas/nueva', titulo: 'Cargar venta', icono: '➕', vista: vistaNuevaVenta },
-  { ruta: 'documentacion', titulo: 'Documentacion', icono: '📁', vista: vistaDocumentacion, globo: 'documentos' },
+  // Un formulario a medio completar nunca se redibuja solo.
+  { ruta: 'ventas/nueva', titulo: 'Cargar venta', icono: '➕', vista: vistaNuevaVenta, sinActualizarSola: true },
+  { ruta: 'documentacion', titulo: 'Documentacion', icono: '📁', vista: vistaDocumentacion },
   { ruta: 'buscador', titulo: 'Buscar dominio', icono: '🔎', vista: vistaBuscador },
   { ruta: 'infracciones', titulo: 'Infracciones', icono: '🚨', vista: vistaInfracciones, globo: 'infracciones' },
   { ruta: 'usuarios', titulo: 'Equipo', icono: '👥', vista: vistaUsuarios, soloAdmin: true }
@@ -80,7 +80,6 @@ function resolver(ruta) {
 // ---------- Estructura de la aplicacion ----------
 
 function cantidadDelGlobo(globo) {
-  if (globo === 'documentos') return estado.documentosPendientes;
   if (globo === 'infracciones') return estado.infraccionesAbiertas;
   return 0;
 }
@@ -165,6 +164,49 @@ function avisoDeVersion() {
 // Numero del ultimo dibujado pedido. Si mientras se arma una pantalla se
 // pide otra, la primera se descarta en vez de pisar a la nueva.
 let dibujadoActual = 0;
+
+// ¿Se puede redibujar la pantalla ahora sin molestar a quien la usa?
+function sePuedeActualizarSola() {
+  if (!estado.usuario) return false;
+  const resuelto = resolver(rutaActual());
+  if (!resuelto || resuelto.definicion.sinActualizarSola) return false;
+  if (hayCambiosPendientes() || hayTrabajoEnCurso()) return false;
+  if (document.querySelector('.modal-fondo')) return false;
+  const activo = document.activeElement;
+  if (activo && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activo.tagName)) return false;
+  // Si esta seleccionando texto (para copiarlo), tambien se espera.
+  const seleccion = window.getSelection && window.getSelection();
+  if (seleccion && String(seleccion).trim()) return false;
+  return true;
+}
+
+// Vuelve a dibujar la pantalla actual con los datos nuevos, sin pasar por
+// "Cargando…" y dejando todo donde estaba (desplazamiento y secciones
+// desplegadas).
+async function actualizarEnSilencio() {
+  const contenido = raiz.querySelector('main.contenido');
+  const resuelto = resolver(rutaActual());
+  if (!contenido || !resuelto) return dibujar();
+
+  const miTurno = ++dibujadoActual;
+  const desplazamiento = window.scrollY;
+  const desplegados = [...contenido.querySelectorAll('details')].map((d) => d.open);
+  try {
+    const vista = await resuelto.definicion.vista(resuelto.params);
+    // Si mientras tanto navego o empezo a escribir, esto ya no sirve.
+    if (miTurno !== dibujadoActual || !sePuedeActualizarSola()) return undefined;
+    vaciar(contenido).append(vista);
+    const nuevos = [...contenido.querySelectorAll('details')];
+    if (nuevos.length === desplegados.length) nuevos.forEach((d, i) => { d.open = desplegados[i]; });
+    window.scrollTo(0, desplazamiento);
+    marcarComoVisto();
+    refrescarPendientes();
+  } catch {
+    // Si falla (sin conexion), queda lo que estaba: se reintenta en el
+    // proximo cambio.
+  }
+  return undefined;
+}
 
 async function dibujar() {
   if (!estaConfigurado()) return dibujarSinConfigurar();
@@ -294,7 +336,7 @@ function dibujarIngreso(mensaje, modo = 'ingresar') {
       const { usuario } = await api.login(email.value, password.value);
       estado.usuario = usuario;
       await refrescarPendientes();
-      iniciarSincronizacion(() => dibujar());
+      iniciarSincronizacion(actualizarEnSilencio, sePuedeActualizarSola);
       dibujar();
     } catch (error) {
       aviso.textContent = error.message;
@@ -417,10 +459,8 @@ function abrirCambioPassword() {
 export async function refrescarPendientes() {
   try {
     const stats = await api.estadisticas();
-    estado.documentosPendientes = stats.documentos_pendientes || 0;
     estado.infraccionesAbiertas = stats.infracciones_abiertas || 0;
   } catch {
-    estado.documentosPendientes = 0;
     estado.infraccionesAbiertas = 0;
   }
   actualizarGlobos();
@@ -458,7 +498,7 @@ window.addEventListener('hashchange', dibujar);
 
   if (estado.usuario) {
     await refrescarPendientes();
-    iniciarSincronizacion(() => dibujar());
+    iniciarSincronizacion(actualizarEnSilencio, sePuedeActualizarSola);
   }
   dibujar();
 })();

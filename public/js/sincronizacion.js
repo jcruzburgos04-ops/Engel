@@ -1,62 +1,72 @@
-// Detecta que otra persona cargo o cambio algo mientras esta pagina estaba
-// abierta. No pisa lo que el usuario esta escribiendo: avisa con un cartel y
-// deja que decida cuando actualizar.
+// Mantiene la pantalla al dia sola.
+//
+// - Datos: cada pocos segundos se pregunta a la base si algo cambio (lo haya
+//   cambiado otra persona, vos desde otra pestana o vos mismo en esta). Si
+//   cambio, la pantalla se vuelve a dibujar con lo nuevo, sin avisos ni
+//   botones.
+// - La web: si se publico una version nueva, la pagina se recarga sola.
+//
+// En los dos casos se espera el momento justo: nunca mientras estas
+// escribiendo, con una ventana abierta, subiendo un archivo o con cambios
+// que todavia no se guardaron. Lo que no se puede interrumpir, se posterga.
 
-import { h } from './util.js';
 import { api } from './api.js';
 
-const INTERVALO_VISIBLE = 12000;
+const INTERVALO_VISIBLE = globalThis.__ENGEL_INTERVALO_DATOS__ || 8000;
 const INTERVALO_OCULTO = 60000;
+const INTERVALO_WEB = globalThis.__ENGEL_INTERVALO_WEB__ || 60000;
+const REINTENTO_OCUPADO = 2000;
 
-let version = null;
+let versionVista = null; // version de los datos que muestra la pantalla
+let hayDatosNuevos = false;
 let temporizador;
-let cartel;
+let reintento;
 let alActualizar = null;
+let sePuedeInterrumpir = () => true;
+
+let versionWeb = null; // version de la web cargada en esta pestana
+let hayWebNueva = false;
+let temporizadorWeb;
+let escuchando = false;
+
+// ---------- Datos ----------
 
 async function consultar() {
   try {
-    const datos = await api.estadoDatos();
-
-    if (version === null) {
-      version = datos.version;
+    const { version } = await api.estadoDatos();
+    if (versionVista === null) {
+      versionVista = version;
       return;
     }
-    if (datos.version !== version) mostrarCartel();
+    if (version !== versionVista) {
+      hayDatosNuevos = true;
+      versionVista = version;
+      intentar();
+    }
   } catch {
     // Sin conexion: se vuelve a intentar en el proximo ciclo.
   }
 }
 
-function mostrarCartel() {
-  if (cartel) return;
+// Aplica lo pendiente si se puede; si no, lo reintenta en un rato.
+function intentar() {
+  clearTimeout(reintento);
+  if (!hayWebNueva && !hayDatosNuevos) return;
 
-  cartel = h(
-    'div',
-    { class: 'aviso-sincro', role: 'status' },
-    h('span', {}, '🔄 Alguien del equipo cargo cambios nuevos.'),
-    h(
-      'button',
-      {
-        class: 'boton boton--chico boton--primario',
-        type: 'button',
-        onClick: () => {
-          ocultarCartel();
-          version = null;
-          if (alActualizar) alActualizar();
-        }
-      },
-      'Actualizar'
-    ),
-    h('button', { class: 'boton boton--chico', type: 'button', onClick: ocultarCartel }, 'Despues')
-  );
-  document.body.append(cartel);
-}
-
-function ocultarCartel() {
-  if (cartel) {
-    cartel.remove();
-    cartel = null;
+  if (document.visibilityState !== 'visible' || !sePuedeInterrumpir()) {
+    reintento = setTimeout(intentar, REINTENTO_OCUPADO);
+    return;
   }
+
+  if (hayWebNueva) {
+    // La cola de guardado vive en el navegador, pero igual se espera a que
+    // este vacia (sePuedeInterrumpir lo revisa) antes de recargar.
+    location.reload();
+    return;
+  }
+
+  hayDatosNuevos = false;
+  if (alActualizar) alActualizar();
 }
 
 function programar() {
@@ -68,25 +78,72 @@ function programar() {
   }, espera);
 }
 
-/** Marca la version actual como vista (se llama al redibujar una vista). */
+// ---------- Version de la web ----------
+
+// version.json lo escribe la publicacion (Netlify o Vercel) con el codigo
+// del cambio. Si no existe (por ejemplo, probando en la computadora), esta
+// parte queda apagada.
+async function leerVersionWeb() {
+  try {
+    const respuesta = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!respuesta.ok) return null;
+    const datos = await respuesta.json();
+    return datos && datos.version ? String(datos.version) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function revisarWeb() {
+  const actual = await leerVersionWeb();
+  if (actual === null) return;
+  if (versionWeb === null) {
+    versionWeb = actual;
+  } else if (actual !== versionWeb) {
+    hayWebNueva = true;
+    intentar();
+    return;
+  }
+  temporizadorWeb = setTimeout(revisarWeb, INTERVALO_WEB);
+}
+
+// ---------- Uso desde la aplicacion ----------
+
+/** La pantalla se acaba de dibujar con datos frescos. */
 export function marcarComoVisto() {
-  ocultarCartel();
-  version = null;
+  hayDatosNuevos = false;
+  versionVista = null;
   consultar();
 }
 
-export function iniciarSincronizacion(callbackActualizar) {
-  alActualizar = callbackActualizar;
+/**
+ * - `actualizar`: redibuja la pantalla actual con los datos nuevos.
+ * - `puedeInterrumpir`: dice si ahora se puede redibujar sin molestar.
+ */
+export function iniciarSincronizacion(actualizar, puedeInterrumpir) {
+  alActualizar = actualizar;
+  if (puedeInterrumpir) sePuedeInterrumpir = puedeInterrumpir;
   consultar();
   programar();
+  if (versionWeb === null) revisarWeb();
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') consultar();
-    programar();
-  });
+  if (!escuchando) {
+    escuchando = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!alActualizar) return;
+      if (document.visibilityState === 'visible') {
+        consultar();
+        intentar();
+      }
+      programar();
+    });
+  }
 }
 
 export function detenerSincronizacion() {
+  alActualizar = null;
+  hayDatosNuevos = false;
   clearTimeout(temporizador);
-  ocultarCartel();
+  clearTimeout(reintento);
+  clearTimeout(temporizadorWeb);
 }

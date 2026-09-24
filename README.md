@@ -79,14 +79,44 @@ Se puede volver a ejecutar cuando sea: no borra ni duplica nada.
 
 #### Si la base ya estaba instalada de antes
 
-La web se publica sola cada vez que se toca el codigo, pero el SQL hay que
-correrlo a mano. Cuando la base se queda atras, la web lo avisa con una barra
-roja arriba de todo que dice que hay que actualizarla.
+Lo mejor es dejar activadas las **actualizaciones automaticas** (ver abajo):
+asi la base se pone al dia sola cada vez que cambia el codigo.
 
-Para ponerla al dia: **SQL Editor** → **New query**, pegar todo el contenido de
-[`supabase/actualizar.sql`](supabase/actualizar.sql) y apretar **Run**. Tambien
-termina con una tabla de resultado, no borra datos y se puede correr las veces
-que haga falta.
+A mano tambien se puede: **SQL Editor** → **New query**, pegar todo el
+contenido de [`supabase/actualizar.sql`](supabase/actualizar.sql) y apretar
+**Run**. Termina con una tabla de resultado, no borra datos y se puede correr
+las veces que haga falta. Si la base se queda atras, la web lo avisa con una
+barra roja arriba de todo.
+
+#### Actualizaciones automaticas de la base (una sola vez, 5 minutos)
+
+La web se publica sola en Netlify. Para que la base tambien se actualice sola,
+GitHub necesita poder conectarse a Supabase. Se le da ese permiso con un
+**secreto**: queda cifrado en GitHub, no aparece en el codigo (que es publico)
+ni en los registros, y solo lo usa la tarea
+[`actualizar-base.yml`](.github/workflows/actualizar-base.yml).
+
+1. **La contrasena de la base.** Es la que se eligio al crear el proyecto de
+   Supabase. Si no la tenes: **Project Settings → Database → Reset database
+   password**, y guardala en un lugar seguro. No la mandes por chat ni la
+   pegues en ningun archivo.
+2. **La cadena de conexion.** En Supabase, boton **Connect** (arriba) →
+   **Session pooler** → copiar la URI. Tiene esta forma:
+   `postgresql://postgres.xxxxx:[YOUR-PASSWORD]@aws-0-....pooler.supabase.com:5432/postgres`.
+   Reemplaza `[YOUR-PASSWORD]` por la contrasena (sin los corchetes). Tiene que
+   ser la de **Session pooler**: la "Direct connection" no funciona desde
+   GitHub.
+3. **Guardarla en GitHub.** En el repositorio: **Settings → Secrets and
+   variables → Actions → New repository secret**. Nombre: `SUPABASE_DB_URL`.
+   Valor: la cadena del paso 2. **Add secret**.
+4. **Probarla.** Solapa **Actions → Actualizar la base → Run workflow**. En un
+   minuto aparece el resultado con la misma tabla que da el SQL Editor. Si
+   algo falla, la base queda exactamente como estaba (todo corre en una sola
+   transaccion).
+
+Desde ahi, cada cambio en la carpeta `supabase/` se aplica solo. Sin el
+secreto la tarea no hace nada: la base queda como esta y se puede seguir
+actualizando a mano.
 
 ### 3. Conectar la web con la base
 
@@ -238,9 +268,14 @@ una copia completa de toda la operacion.
 - Cargar una venta es todo o nada: nunca queda media venta cargada.
 - Un mismo dominio no puede estar en dos ventas abiertas, y la base lo impide
   aunque dos personas lo intenten en el mismo segundo.
-- Si otra persona carga algo mientras tenes la pagina abierta, aparece un
-  cartel discreto ofreciendo actualizar. Nunca se te borra lo que estas
-  escribiendo.
+- La pantalla se actualiza sola: cada pocos segundos se fija si alguien
+  (otra persona, vos desde otra pestana o vos mismo) cambio algo, y si cambio,
+  la redibuja con lo nuevo. Nunca mientras estas escribiendo, con una ventana
+  abierta, subiendo un archivo, con cambios sin guardar o cargando una venta
+  nueva: en esos casos espera a que termines. Los filtros y lo que tenias
+  desplegado quedan como estaban.
+- Cuando se publica una version nueva de la web, las pestanas abiertas se
+  recargan solas (con el mismo cuidado).
 
 ## Descargar la informacion
 
@@ -318,6 +353,7 @@ supabase/
 
 herramientas/
   servidor-local.js     Servidor estatico para desarrollar
+  marcar-version.js     Anota la version publicada (para recargar pestanas)
   revisar-web.js        Revisa sintaxis e imports
   pruebas/              Doble de Supabase para probar sin tocar la nube
 ```

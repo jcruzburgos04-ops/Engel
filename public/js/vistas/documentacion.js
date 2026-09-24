@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import {
   h, vaciar, fecha, diasHasta, avisar, etiquetaDominio, etiquetaTenencia, barraProgreso,
-  vacio, campo, campoCasilla
+  vacio, campo, campoCasilla, recordar, recordado
 } from '../util.js';
 import { encabezado } from '../app.js';
 import { descargarDocumentacionCsv } from '../descargas.js';
@@ -51,11 +51,13 @@ function filaPanel(fila) {
 }
 
 export async function vistaDocumentacion() {
-  const buscador = h('input', { type: 'search', placeholder: 'Dominio, vehiculo o cliente…' });
-  const verTodos = h('input', { type: 'checkbox' });
+  const buscador = h('input', { type: 'search', placeholder: 'Dominio, vehiculo o cliente…', value: recordado('documentacion:q', '') });
+  const verTodos = h('input', { type: 'checkbox', checked: recordado('documentacion:todos', false) });
   const resultados = h('section', { class: 'tarjeta' }, h('div', { class: 'cargando' }, 'Cargando…'));
 
   async function cargar() {
+    recordar('documentacion:q', buscador.value);
+    recordar('documentacion:todos', verTodos.checked);
     vaciar(resultados).append(h('div', { class: 'cargando' }, 'Cargando…'));
     try {
       const { filas } = await api.panelDocumentacion({

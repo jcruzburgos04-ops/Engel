@@ -1,0 +1,72 @@
+# Pone al dia la base de datos de Supabase sola, cada vez que cambia algo en
+# la carpeta supabase/. Asi nadie tiene que pegar actualizar.sql a mano.
+#
+# Necesita un solo dato, guardado como secreto del repositorio (no queda en
+# el codigo ni se ve en los registros):
+#   SUPABASE_DB_URL = la cadena de conexion "Session pooler" de Supabase,
+#                     con la contrasena de la base adentro.
+# Sin ese secreto, la tarea no hace nada y termina bien.
+
+name: Actualizar la base
+
+on:
+  push:
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/actualizar-base.yml'
+  # Para correrla a mano desde la solapa Actions.
+  workflow_dispatch:
+
+# Solo lee el repositorio. Nunca corre para cambios propuestos desde afuera
+# (pull requests), que no tienen acceso al secreto.
+permissions:
+  contents: read
+
+# Nunca dos actualizaciones a la vez.
+concurrency:
+  group: actualizar-base
+  cancel-in-progress: false
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Revisar que este configurada
+        id: config
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "listo=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::Falta el secreto SUPABASE_DB_URL: la base no se actualiza sola. Ver el README, seccion 'Actualizaciones automaticas'."
+            echo "Falta configurar el secreto SUPABASE_DB_URL. La base no se toco." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "listo=si" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Instalar psql
+        if: steps.config.outputs.listo == 'si'
+        run: command -v psql || (sudo apt-get update -q && sudo apt-get install -y -q postgresql-client)
+
+      - name: Correr supabase/actualizar.sql
+        if: steps.config.outputs.listo == 'si'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          # Todo en una transaccion: si algo falla, la base queda como estaba.
+          psql "$SUPABASE_DB_URL" --no-psqlrc -q -v ON_ERROR_STOP=1 --single-transaction \
+            -P pager=off -f supabase/actualizar.sql > resultado.txt
+          {
+            echo "### Resultado de la actualizacion"
+            echo '```'
+            cat resultado.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat resultado.txt
+          if grep -q "| FALTA " resultado.txt; then
+            echo "::error::La actualizacion corrio pero algun control dio FALTA. Ver el resultado arriba."
+            exit 1
+          fi

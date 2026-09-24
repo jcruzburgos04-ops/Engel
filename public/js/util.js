@@ -354,3 +354,30 @@ export function opciones(select, lista, seleccionado) {
 export function vacio(texto, icono = '📭') {
   return h('div', { class: 'vacio' }, h('span', { class: 'vacio__icono' }, icono), texto);
 }
+
+// ---------- Trabajos en curso y memoria de la pantalla ----------
+
+// Mientras se sube un archivo la pantalla no se redibuja sola: se perderia
+// el cartel de "Subiendo…".
+let trabajosEnCurso = 0;
+export async function mientrasTrabaja(promesa) {
+  trabajosEnCurso += 1;
+  try {
+    return await promesa;
+  } finally {
+    trabajosEnCurso -= 1;
+  }
+}
+export function hayTrabajoEnCurso() {
+  return trabajosEnCurso > 0;
+}
+
+// Filtros y busquedas elegidos en cada pantalla. Asi, cuando la pantalla se
+// actualiza sola con cambios nuevos, queda como la dejaste.
+const memoria = new Map();
+export function recordar(clave, valor) {
+  memoria.set(clave, valor);
+}
+export function recordado(clave, porDefecto) {
+  return memoria.has(clave) ? memoria.get(clave) : porDefecto;
+}

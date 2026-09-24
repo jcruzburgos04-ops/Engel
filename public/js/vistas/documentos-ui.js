@@ -3,7 +3,7 @@ import { encolar } from '../guardado.js';
 import { descargarArchivo, descargarZipDominio } from '../descargas.js';
 import {
   h, vaciar, avisar, confirmar, fechaHora, tamano, etiquetaDominio,
-  barraProgreso, ESTADOS_DOCUMENTO, opciones
+  barraProgreso, ESTADOS_DOCUMENTO, opciones, mientrasTrabaja
 } from '../util.js';
 
 function chipArchivo(archivo, alBorrar) {
@@ -104,7 +104,7 @@ function filaDocumento(item, alActualizar) {
     for (let intento = 0; intento <= ESPERAS.length; intento += 1) {
       botonSubir.textContent = intento === 0 ? 'Subiendo…' : `Reintentando (${intento})…`;
       try {
-        const { documentacion } = await api.subirArchivos(item.id, elegidos);
+        const { documentacion } = await mientrasTrabaja(api.subirArchivos(item.id, elegidos));
         avisar(`${cantidad} archivo(s) cargados en ${item.etiqueta}.`);
         alActualizar(documentacion);
         ultimoError = null;

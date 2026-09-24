@@ -13,6 +13,14 @@ const SALIDA = process.argv[2] || '.';
 const errores = [];
 const ok = (c, m) => { console.log(`  ${c ? '✓' : '✗'} ${m}`); if (!c) errores.push(m); };
 
+// Para cambiar datos "desde otro lado" directamente en la base.
+const psql = (sql) =>
+  execSync(
+    `psql -h "${process.env.PGHOST || '/tmp'}" -p ${process.env.PGPORT || 5433} ` +
+      `-U "${process.env.PGUSER || 'engel'}" -d "${process.env.PGDATABASE || 'engel_web'}" -qc ${JSON.stringify(sql)}`,
+    { stdio: 'pipe' }
+  );
+
 // En algunos entornos el navegador ya viene instalado en otra ruta.
 const NAVEGADOR = process.env.CHROME_PATH || undefined;
 const nav = await chromium.launch(NAVEGADOR ? { executablePath: NAVEGADOR } : {});
@@ -25,6 +33,9 @@ async function nuevaPagina() {
     globalThis.__ENGEL_MODULO_SUPABASE__ = `${falso}/supabase-falso.js`;
     globalThis.__ENGEL_MODULO_ZIP__ = `${falso}/jszip.mjs`;
     globalThis.__ENGEL_SERVIDOR_FALSO__ = falso;
+    // En la prueba se revisan los cambios mas seguido, para no esperar tanto.
+    globalThis.__ENGEL_INTERVALO_DATOS__ = 2000;
+    globalThis.__ENGEL_INTERVALO_WEB__ = 1500;
     try {
       localStorage.setItem('engel:url', `${falso}`);
       localStorage.setItem('engel:clave', 'clave-de-prueba');
@@ -428,15 +439,52 @@ await p.waitForFunction(() => ![...document.querySelectorAll('tr.municipio stron
 ok(true, 'se puede quitar un municipio');
 
 // ---------------------------------------------------------------------
-console.log('12. Si la base quedo vieja, la web lo dice');
+console.log('12. La pantalla se actualiza sola');
+ok((await p.locator('a.menu__link[href="#/documentacion"] .globo').count()) === 0, 'Documentacion no muestra numero');
+
+// Otra persona cambia algo: la pantalla lo muestra sin tocar nada.
+psql("UPDATE public.infracciones SET cantidad = 9 WHERE jurisdiccion = 'CABA'");
+await p.waitForFunction(
+  () => [...document.querySelectorAll('tr.municipio')].some((tr) =>
+    tr.querySelector('strong')?.textContent === 'CABA' && tr.querySelector('input.municipio__cantidad')?.value === '9'),
+  null, { timeout: 20000 }
+).then(() => ok(true, 'un cambio de otra persona aparece solo, sin recargar'))
+  .catch(() => ok(false, 'un cambio de otra persona aparece solo, sin recargar'));
+
+// Pero si estas escribiendo, espera a que termines.
+const montoCaba = renglon('CABA').locator('input.municipio__monto');
+await montoCaba.click();
+psql("UPDATE public.infracciones SET cantidad = 7 WHERE jurisdiccion = 'CABA'");
+await p.waitForTimeout(7000);
+ok((await renglon('CABA').locator('input.municipio__cantidad').inputValue()) === '9', 'mientras escribis no te cambia la pantalla');
+await p.locator('h1').first().click();
+await p.waitForFunction(
+  () => [...document.querySelectorAll('tr.municipio input.municipio__cantidad')].some((i) => i.value === '7'),
+  null, { timeout: 20000 }
+).then(() => ok(true, 'al terminar de escribir se pone al dia'))
+  .catch(() => ok(false, 'al terminar de escribir se pone al dia'));
+
+// Cuando se publica una version nueva de la web, la pestana se recarga sola.
+const rutaVersion = new URL('../../public/version.json', import.meta.url);
+fs.writeFileSync(rutaVersion, JSON.stringify({ version: 'prueba-1' }));
+try {
+  await p.reload({ waitUntil: 'networkidle' });
+  await p.waitForSelector('tr.municipio', { timeout: 15000 });
+  await p.waitForTimeout(2500);
+  await p.evaluate(() => { window.__sigoSiendoLaMisma = true; });
+  fs.writeFileSync(rutaVersion, JSON.stringify({ version: 'prueba-2' }));
+  await p.waitForFunction(() => !window.__sigoSiendoLaMisma, null, { timeout: 20000, polling: 500 })
+    .then(() => ok(true, 'con una version nueva publicada, la web se recarga sola'))
+    .catch(() => ok(false, 'con una version nueva publicada, la web se recarga sola'));
+  await p.waitForSelector('tr.municipio', { timeout: 15000 });
+} finally {
+  fs.rmSync(rutaVersion, { force: true });
+}
+
+// ---------------------------------------------------------------------
+console.log('13. Si la base quedo vieja, la web lo dice');
 // La web se publica sola y el SQL se corre a mano: hay que avisar en castellano
 // en vez de dejar que Postgres tire un error que nadie entiende.
-const psql = (sql) =>
-  execSync(
-    `psql -h "${process.env.PGHOST || '/tmp'}" -p ${process.env.PGPORT || 5433} ` +
-      `-U "${process.env.PGUSER || 'engel'}" -d "${process.env.PGDATABASE || 'engel_web'}" -qc ${JSON.stringify(sql)}`,
-    { stdio: 'pipe' }
-  );
 
 // La version que pide la web sube con cada cambio del esquema: se lee de ahi
 // para que la prueba no haya que retocarla cada vez.

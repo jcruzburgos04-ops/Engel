@@ -13,3 +13,6 @@ herramientas/pruebas/.pids
 herramientas/pruebas/deposito/
 titulo-prueba.pdf
 comprobante-prueba.pdf
+
+# La escribe la publicacion (herramientas/marcar-version.js)
+public/version.json

@@ -154,6 +154,9 @@ export async function vistaBuscador({ dominio } = {}) {
 
     try {
       const datos = await api.buscarDominio(limpio);
+      // Con el resultado a la vista, se suelta el campo: asi la ficha se
+      // puede actualizar sola si alguien cambia algo.
+      entrada.blur();
       vaciar(resultados).append(
         fichaVehiculo(datos.vehiculo),
         datos.ventas.length ? tablaOperaciones(datos.ventas) : vacio('Este dominio no esta vinculado a ninguna operacion.', '🧾'),

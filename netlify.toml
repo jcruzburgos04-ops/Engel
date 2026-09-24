@@ -1,11 +1,12 @@
 # Publicacion en Netlify (gratis).
 #
 # Conectar el repositorio en https://app.netlify.com y listo: no hay nada
-# que compilar, la web son archivos sueltos.
+# que compilar, la web son archivos sueltos. El unico paso anota la version
+# publicada, para que las pestanas abiertas se actualicen solas.
 
 [build]
   publish = "public"
-  command = ""
+  command = "node herramientas/marcar-version.js"
 
 [[headers]]
   for = "/*"
@@ -20,6 +21,11 @@
   for = "/index.html"
   [headers.values]
     Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/version.json"
+  [headers.values]
+    Cache-Control = "no-store"
 
 [[headers]]
   for = "/js/config.js"

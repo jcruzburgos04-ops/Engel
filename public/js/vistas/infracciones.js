@@ -17,7 +17,7 @@ import {
   fecha, fechaHora, tamano, etiquetaDominio, descripcionVehiculo,
   dominioEsValido, normalizarDominio, formatearDominio, leerMonto,
   copiarAlPortapapeles, linkDePortal, portalCompletaSolo,
-  ESTADOS_INFRACCION
+  ESTADOS_INFRACCION, mientrasTrabaja, recordar, recordado
 } from '../util.js';
 import { encabezado, navegar, estado, refrescarPendientes } from '../app.js';
 
@@ -396,7 +396,10 @@ function tablaAutos(filas) {
 }
 
 export async function vistaInfracciones() {
-  const [listado, portales] = await Promise.all([api.listarInfracciones({ filtro: 'abiertas' }), api.portales()]);
+  const [listado, portales] = await Promise.all([
+    api.listarInfracciones({ filtro: recordado('infracciones:filtro', 'abiertas'), q: recordado('infracciones:texto', '') }),
+    api.portales()
+  ]);
   const contenedor = h('div', {});
 
   const irAlDominio = (valor) => {
@@ -416,8 +419,8 @@ export async function vistaInfracciones() {
 
   const indicadores = h('div', { class: 'grilla grilla--tarjetas', style: 'margin-bottom:1.25rem' });
   const cuerpoTabla = h('div', {});
-  const filtro = opciones(h('select', {}), FILTROS, 'abiertas');
-  const texto = h('input', { type: 'search', placeholder: 'Buscar por dominio o municipio' });
+  const filtro = opciones(h('select', {}), FILTROS, recordado('infracciones:filtro', 'abiertas'));
+  const texto = h('input', { type: 'search', placeholder: 'Buscar por dominio o municipio', value: recordado('infracciones:texto', '') });
 
   function pintarListado(datos) {
     const r = datos.resumen || {};
@@ -433,6 +436,8 @@ export async function vistaInfracciones() {
   let pedido = 0;
   let reloj;
   async function recargarListado() {
+    recordar('infracciones:filtro', filtro.value);
+    recordar('infracciones:texto', texto.value);
     const mio = ++pedido;
     try {
       const datos = await api.listarInfracciones({ filtro: filtro.value, q: texto.value.trim() });
@@ -497,7 +502,6 @@ export async function vistaInfracciones() {
     zonaPortales
   );
 
-  setTimeout(() => sugeridor.entrada.focus(), 0);
   return contenedor;
 }
 
@@ -515,7 +519,7 @@ function comprobantes(infraccion, recargar) {
     boton.disabled = true;
     boton.textContent = 'Subiendo…';
     try {
-      await api.subirComprobantes(infraccion.id, elegidos);
+      await mientrasTrabaja(api.subirComprobantes(infraccion.id, elegidos));
       avisar(`${elegidos.length} archivo(s) cargados.`);
       recargar();
     } catch (err) {
