@@ -120,8 +120,13 @@ actualizando a mano.
 
 ### 3. Conectar la web con la base
 
-1. En Supabase: **Project Settings** → **API**.
-2. Copiar **Project URL** y la clave **anon public**.
+1. En Supabase, boton **Connect** (arriba) → pestaña **App Frameworks**: ahi
+   aparecen las dos cosas. Tambien estan en **Project Settings → Data API**
+   (Project URL) y **Project Settings → API Keys → Legacy API keys** (anon).
+   La Project URL es `https://` + el codigo que aparece en la barra del
+   navegador despues de `dashboard/project/` + `.supabase.co`.
+2. Copiar **Project URL** y la clave **anon public** (o la *publishable*, que
+   empieza con `sb_publishable_`: sirve igual).
 3. Pegarlas en el archivo [`public/js/config.js`](public/js/config.js):
 
 ```js

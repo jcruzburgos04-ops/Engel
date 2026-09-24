@@ -2,8 +2,9 @@
 // Configuracion de la web — ESTE ES EL UNICO ARCHIVO QUE HAY QUE EDITAR
 // =====================================================================
 //
-// Los dos valores salen del panel de Supabase:
-//   Project Settings → API → "Project URL" y "anon public"
+// Los dos valores salen del panel de Supabase (boton "Connect" arriba, o):
+//   Project Settings → Data API → "Project URL"
+//   Project Settings → API Keys → Legacy API keys → "anon public"
 //
 // La clave "anon" es publica a proposito: viaja en cada visita. Lo que
 // protege los datos son las reglas de acceso de la base, no esta clave.
@@ -12,8 +13,8 @@
 // esas saltean todas las reglas.
 
 const valores = {
-  url: 'https://vvemfigzzlrtnwmxscoy.supabase.co',
-  clave: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2ZW1maWd6emxydG53bXhzY295Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1NjAxNjgsImV4cCI6MjEwNTEzNjE2OH0.iwHwmYl0Nqt87fwR6tni53zxOytOfZdAxHYOEi0uPgA'
+  url: 'https://auuxcwvpgghzzmmodrlf.supabase.co',
+  clave: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1dXhjd3ZwZ2doenptbW9kcmxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyNjAxODQsImV4cCI6MjEwNTgzNjE4NH0.TW_A9Gfe5dCl8YKTZsxJjm7KafKYczPp0-O4WBUOvqA'
 };
 
 // El panel de Supabase muestra la direccion de varias formas. Se acepta
