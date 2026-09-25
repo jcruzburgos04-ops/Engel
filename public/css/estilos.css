@@ -474,7 +474,7 @@ td.acciones { text-align: right; white-space: nowrap; }
 /* Carga de infracciones: un renglon por municipio. */
 .carga__fila {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(5rem, .8fr) minmax(0, 1.3fr) auto;
+  grid-template-columns: minmax(0, 1fr) 7rem auto;
   gap: .5rem;
   align-items: end;
   margin-bottom: .5rem;
@@ -493,7 +493,6 @@ td.acciones { text-align: right; white-space: nowrap; }
 .tabla-municipios td { vertical-align: middle; }
 .tabla-municipios .campo { gap: .15rem; }
 .tabla-municipios .municipio__cantidad { width: 4.5rem; }
-.tabla-municipios .municipio__monto { width: 7.5rem; }
 .tabla-municipios select { min-width: 7.5rem; }
 .tabla-municipios td:first-child { min-width: 10.5rem; }
 .tabla-municipios th, .tabla-municipios td { padding-left: .5rem; padding-right: .5rem; }
@@ -511,10 +510,9 @@ td.acciones { text-align: right; white-space: nowrap; }
 .municipio__preguntar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 
 @media (max-width: 560px) {
-  .carga__fila { grid-template-columns: 1fr 5rem; }
+  .carga__fila { grid-template-columns: 1fr 5rem auto; }
   .carga__bloque { padding-bottom: .6rem; border-bottom: 1px solid var(--borde-suave); }
   .carga__fila .carga__rotulo { display: block !important; }
-  .carga__fila > :nth-child(3) { grid-column: 1 / 2; }
   .carga__fila > button { justify-self: end; align-self: end; }
 }
 

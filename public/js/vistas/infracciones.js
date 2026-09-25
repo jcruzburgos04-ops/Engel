@@ -15,7 +15,7 @@ import { descargarArchivo } from '../descargas.js';
 import {
   h, vaciar, avisar, confirmar, abrirModal, campo, campoAncho, opciones, vacio,
   fecha, fechaHora, tamano, etiquetaDominio, descripcionVehiculo,
-  dominioEsValido, normalizarDominio, formatearDominio, leerMonto,
+  dominioEsValido, normalizarDominio, formatearDominio,
   copiarAlPortapapeles, linkDePortal, portalCompletaSolo,
   ESTADOS_INFRACCION, mientrasTrabaja, recordar, recordado
 } from '../util.js';
@@ -30,26 +30,6 @@ const FILTROS = [
 ];
 
 const AYUDA_DOMINIO = 'Revisa el dominio. Autos: AAA123 o AB123CD. Motos: 123ABC o A123BCD.';
-const AYUDA_MONTO = 'No se entiende el monto. Escribilo asi: 85.000 o 85000,50';
-
-// Montos sin el signo, como se escriben: "85.000" o "85.000,50".
-function montoParaEditar(valor) {
-  if (valor === null || valor === undefined || valor === '') return '';
-  const n = Number(valor);
-  const decimales = Number.isInteger(n) ? 0 : 2;
-  return new Intl.NumberFormat('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: decimales }).format(n);
-}
-
-// Los montos pueden tener centavos: se muestran si los hay.
-function pesos(valor) {
-  if (valor === null || valor === undefined || valor === '') return '—';
-  const n = Number(valor);
-  const decimales = Number.isInteger(n) ? 0 : 2;
-  return new Intl.NumberFormat('es-AR', {
-    style: 'currency', currency: 'ARS', minimumFractionDigits: decimales, maximumFractionDigits: decimales
-  }).format(n);
-}
-
 function leerCantidad(texto) {
   const t = String(texto ?? '').trim();
   return /^\d+$/.test(t) && Number(t) >= 1 ? Number(t) : null;
@@ -142,7 +122,6 @@ export function abrirCargaInfracciones({ dominio = '', portales = [], municipio 
     const municipioInput = h('input', { value: nombre, placeholder: 'Municipio (ej. CABA, Pilar)', class: 'carga__municipio' });
     municipioInput.setAttribute('list', idLista);
     const cantidad = h('input', { type: 'number', min: 1, step: 1, value: '1', inputMode: 'numeric', class: 'carga__cantidad' });
-    const monto = h('input', { inputMode: 'decimal', placeholder: 'Total $ (opcional)', class: 'carga__monto' });
     const responsable = h('input', { placeholder: 'Quien las resuelve (opcional)', class: 'carga__responsable' });
     responsable.setAttribute('list', idEquipo);
     const detalles = h('textarea', { rows: 2, placeholder: 'Detalles (opcional)', class: 'carga__detalles', hidden: true });
@@ -155,7 +134,6 @@ export function abrirCargaInfracciones({ dominio = '', portales = [], municipio 
         { class: 'carga__fila' },
         h('label', {}, h('span', { class: 'carga__rotulo' }, 'Municipio'), municipioInput),
         h('label', {}, h('span', { class: 'carga__rotulo' }, 'Infracciones'), cantidad),
-        h('label', {}, h('span', { class: 'carga__rotulo' }, 'Total adeudado'), monto),
         h('button', {
           class: 'boton boton--chico',
           type: 'button',
@@ -174,7 +152,6 @@ export function abrirCargaInfracciones({ dominio = '', portales = [], municipio 
     bloque.leer = () => ({
       municipio: municipioInput.value.trim(),
       cantidad: cantidad.value,
-      monto: monto.value,
       responsable: responsable.value.trim(),
       detalles: detalles.value.trim()
     });
@@ -197,14 +174,12 @@ export function abrirCargaInfracciones({ dominio = '', portales = [], municipio 
 
     const cargadas = [];
     for (const fila of filas.children) {
-      const { municipio: m, cantidad, monto, responsable, detalles } = fila.leer();
-      if (!m && !monto && !responsable && !detalles) continue; // renglon vacio: se ignora
+      const { municipio: m, cantidad, responsable, detalles } = fila.leer();
+      if (!m && !responsable && !detalles) continue; // renglon vacio: se ignora
       if (!m) return mostrarError('Falta el municipio en uno de los renglones.');
       const n = leerCantidad(cantidad);
       if (n === null) return mostrarError(`La cantidad de infracciones en ${m} tiene que ser un numero mayor a cero.`);
-      const total = leerMonto(monto);
-      if (total === null) return mostrarError(`${m}: ${AYUDA_MONTO}`);
-      cargadas.push({ municipio: m, cantidad: n, monto: total, responsable, detalles });
+      cargadas.push({ municipio: m, cantidad: n, responsable, detalles });
     }
     if (!cargadas.length) return mostrarError('Pone al menos un municipio con su cantidad de infracciones.');
 
@@ -414,7 +389,7 @@ function indicador(valor, etiqueta, modificador = '') {
 
 function chipMunicipio(m) {
   const info = ESTADOS_INFRACCION[m.estado] || { clase: '' };
-  const titulo = [info.texto || m.estado, m.monto ? pesos(m.monto) : '', m.responsable ? `resuelve ${m.responsable}` : '']
+  const titulo = [info.texto || m.estado, m.responsable ? `resuelve ${m.responsable}` : '']
     .filter(Boolean).join(' · ');
   return h('span', { class: `etiqueta ${info.clase}`, title: titulo },
     `${m.municipio} · ${m.cantidad}`);
@@ -431,7 +406,7 @@ function tablaAutos(filas) {
       {},
       h('thead', {}, h('tr', {},
         h('th', {}, 'Dominio'), h('th', {}, 'Auto'), h('th', {}, 'Infracciones por municipio'),
-        h('th', {}, 'Por resolver'), h('th', {}, 'Adeudado'), h('th', {}, 'Quien las resuelve'),
+        h('th', {}, 'Por resolver'), h('th', {}, 'Quien las resuelve'),
         h('th', {}, 'Actualizado'))),
       h(
         'tbody',
@@ -444,7 +419,6 @@ function tablaAutos(filas) {
             h('td', {}, f.vehiculo || '—'),
             h('td', {}, h('div', { class: 'chips' }, ...f.municipios.map(chipMunicipio))),
             h('td', {}, f.abiertas ? h('strong', {}, String(f.abiertas)) : h('span', { class: 'etiqueta etiqueta--ok' }, 'Al dia')),
-            h('td', {}, f.abiertas ? pesos(f.monto_abierto) : '—'),
             h('td', {}, f.responsables || h('span', { class: 'tenue' }, '—')),
             h('td', { class: 'mini' }, fecha(f.actualizado_en))
           )
@@ -485,7 +459,6 @@ export async function vistaInfracciones() {
     const r = datos.resumen || {};
     vaciar(indicadores).append(
       indicador(r.abiertas, 'Multas por resolver', r.abiertas ? 'indicador--alerta' : ''),
-      indicador(pesos(r.monto_abierto || 0), 'Total adeudado', Number(r.monto_abierto) ? 'indicador--aviso' : ''),
       indicador(r.autos_con_abiertas, 'Autos con multas'),
       indicador(r.autos_al_dia, 'Autos al dia')
     );
@@ -675,7 +648,7 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar, equip
       clave: `infraccion:${infraccion.id}:${nombre}`,
       armarArgs: (valor) => ({
         id: infraccion.id,
-        cambios: { [nombre]: valor === '' && nombre === 'monto' ? null : valor }
+        cambios: { [nombre]: valor }
       }),
       alConfirmar: recargarCuandoSePueda,
       ...extra
@@ -694,7 +667,7 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar, equip
         { class: 'municipio municipio--vacio' },
         celdaMunicipio,
         celdaConsultar,
-        h('td', { colSpan: 5 },
+        h('td', { colSpan: 4 },
           h('div', { class: 'municipio__preguntar' },
             h('span', { class: 'mini' }, '¿Que encontraste?'),
             h('button', { class: 'boton boton--chico', type: 'button', onClick: () => registrar(portal, 'sin_infracciones') }, '✅ No tiene'),
@@ -704,7 +677,6 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar, equip
     }
 
     const cantidad = h('input', { type: 'number', min: 1, step: 1, value: String(infraccion.cantidad), inputMode: 'numeric', class: 'municipio__cantidad' });
-    const monto = h('input', { value: montoParaEditar(infraccion.monto), inputMode: 'decimal', placeholder: '—', class: 'municipio__monto' });
     const selectorEstado = opciones(h('select', {}), LISTA_ESTADOS, infraccion.estado);
     const responsable = h('input', { value: infraccion.responsable || '', placeholder: '—', class: 'municipio__responsable' });
     responsable.setAttribute('list', idEquipo);
@@ -716,7 +688,7 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar, equip
     const filaDetalles = h(
       'tr',
       { class: 'municipio__fila-detalles', hidden: !recordado(claveAbierto, false) },
-      h('td', { colSpan: 8 }, campoMulta(infraccion, detalles, 'observaciones', { alConfirmar: undefined }))
+      h('td', { colSpan: 7 }, campoMulta(infraccion, detalles, 'observaciones', { alConfirmar: undefined }))
     );
     const verDetalles = botonDetalles(detalles, {
       contenedor: filaDetalles,
@@ -744,10 +716,6 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar, equip
         leerValor: (el) => leerCantidad(el.value),
         validar: (valor) => (valor === null ? 'Tiene que ser 1 o mas. Si ya no tiene, marcala pagada o quitala.' : '')
       })),
-      h('td', {}, campoMulta(infraccion, monto, 'monto', {
-        leerValor: (el) => leerMonto(el.value),
-        validar: (valor) => (valor === null ? AYUDA_MONTO : '')
-      })),
       h('td', {}, campoMulta(infraccion, selectorEstado, 'estado'),
         infraccion.estado === 'pagada' && infraccion.fecha_pago ? h('div', { class: 'mini' }, `el ${fecha(infraccion.fecha_pago)}`) : null),
       h('td', {}, campoMulta(infraccion, responsable, 'responsable')),
@@ -766,7 +734,7 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar, equip
       { class: 'tabla-municipios' },
       h('thead', {}, h('tr', {},
         h('th', {}, 'Municipio'), h('th', {}, 'Consultar'), h('th', {}, 'Infracciones'),
-        h('th', {}, 'Total adeudado'), h('th', {}, 'Estado'), h('th', {}, 'Quien las resuelve'),
+        h('th', {}, 'Estado'), h('th', {}, 'Quien las resuelve'),
         h('th', {}, 'Comprobante'), h('th', {}))),
       h('tbody', {}, ...filas)
     )
@@ -830,7 +798,7 @@ export async function vistaInfraccionesDominio({ dominio }) {
     });
 
     let resumen = 'Infracciones y consulta de multas';
-    if (r.abiertas) resumen = `${r.abiertas} multa(s) por resolver en ${r.municipios_abiertos} municipio(s) · ${pesos(r.monto_abierto)} adeudado`;
+    if (r.abiertas) resumen = `${r.abiertas} multa(s) por resolver en ${r.municipios_abiertos} municipio(s)`;
     else if (r.total) resumen = 'Sin multas por resolver';
 
     return [

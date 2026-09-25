@@ -369,7 +369,6 @@ await renglon('CABA').locator('button:has-text("Tiene multas")').click();
 await p.waitForSelector('.modal .carga__fila', { timeout: 10000 });
 ok((await p.locator('.modal .carga__municipio').first().inputValue()) === 'CABA', 'al marcar que tiene multas abre la carga con CABA puesto');
 await p.locator('.modal .carga__cantidad').first().fill('3');
-await p.locator('.modal .carga__monto').first().fill('85.000');
 await p.click('.modal button:has-text("Otro municipio")');
 await p.locator('.modal .carga__municipio').nth(1).fill('Pilar');
 await p.locator('.modal .carga__cantidad').nth(1).fill('2');
@@ -382,8 +381,8 @@ await p.click('.modal__pie button:has-text("Guardar")');
 await p.waitForSelector('.modal', { state: 'detached', timeout: 15000 });
 await p.waitForSelector('tr.municipio:has(strong:text-is("Pilar"))', { timeout: 15000 });
 const resumenMultas = await p.locator('.encabezado').innerText();
-ok(/5 multa\(s\) por resolver en 2 municipio\(s\)/.test(resumenMultas) && /85\.000/.test(resumenMultas),
-  `muestra cuantas hay y cuanto se debe (${resumenMultas.split('\n')[1] || ''})`);
+ok(/5 multa\(s\) por resolver en 2 municipio\(s\)/.test(resumenMultas), 'muestra cuantas hay por resolver');
+ok(!/adeudado/i.test(await p.locator('.contenido').innerText()), 'no aparece el total adeudado');
 ok((await renglon('Pilar').locator('input.municipio__responsable').inputValue()) === 'Gestoria Lopez', 'queda anotado quien las resuelve');
 const filaDetallesPilar = p.locator('tr.municipio:has(strong:text-is("Pilar")) + tr.municipio__fila-detalles');
 ok(await filaDetallesPilar.isHidden(), 'los detalles no se ven hasta que se piden');
@@ -410,9 +409,6 @@ await cantidadCaba.blur();
 await p.waitForSelector('tr.municipio .autoguardado__marca--ok', { timeout: 10000 });
 ok(true, 'la cantidad corregida se guarda sola');
 
-const montoPilar = renglon('Pilar').locator('input.municipio__monto');
-await montoPilar.fill('12.000,50');
-await montoPilar.blur();
 await p.waitForTimeout(1500);
 
 // Marcar CABA pagada: se guarda sola y anota la fecha de pago.
@@ -432,7 +428,6 @@ ok(/comprobante-prueba\.pdf/.test(await renglon('CABA').innerText()), 'el compro
 await p.reload({ waitUntil: 'networkidle' });
 await p.waitForSelector('tr.municipio', { timeout: 15000 });
 ok((await renglon('CABA').locator('input.municipio__cantidad').inputValue()) === '4', 'la cantidad persiste tras recargar');
-ok((await renglon('Pilar').locator('input.municipio__monto').inputValue()) === '12.000,50', 'el monto persiste tras recargar');
 ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '2', 'pagada CABA, el menu cuenta solo las de Pilar');
 
 // El listado general: un renglon por auto con sus municipios.
@@ -475,8 +470,7 @@ await p.waitForFunction(
   .catch(() => ok(false, 'un cambio de otra persona aparece solo, sin recargar'));
 
 // Pero si estas escribiendo, espera a que termines.
-const montoCaba = renglon('CABA').locator('input.municipio__monto');
-await montoCaba.click();
+await renglon('CABA').locator('input.municipio__responsable').click();
 psql("UPDATE public.infracciones SET cantidad = 7 WHERE jurisdiccion = 'CABA'");
 await p.waitForTimeout(7000);
 ok((await renglon('CABA').locator('input.municipio__cantidad').inputValue()) === '9', 'mientras escribis no te cambia la pantalla');

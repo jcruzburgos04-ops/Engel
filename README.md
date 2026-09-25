@@ -200,7 +200,7 @@ suyo.
 ### Infracciones
 
 No se cargan una por una: por cada auto se anota **cuantas infracciones tiene
-en cada municipio** (y el total adeudado, si se sabe). No importa de cuando son.
+en cada municipio**. No importa de cuando son.
 
 1. **Cargar las paginas de consulta una sola vez.** En la solapa
    Infracciones, abajo, "Agregar pagina": un nombre (CABA, Provincia, Pilar…)
@@ -213,8 +213,8 @@ en cada municipio** (y el total adeudado, si se sabe). No importa de cuando son.
    "Otro municipio" suma renglones. Si ese municipio ya estaba cargado para el
    auto, se actualiza la cantidad.
 3. **Ver un auto.** Se escribe el dominio (sugiere mientras escribis) y aparece
-   un renglon por municipio: el boton "Consultar", la cantidad, el total
-   adeudado, el estado, quien las resuelve y el comprobante. Los detalles se
+   un renglon por municipio: el boton "Consultar", la cantidad, el estado,
+   quien las resuelve y el comprobante. Los detalles se
    ven tocando "📝 Ver detalles" debajo del municipio. Todo se edita ahi mismo y se guarda
    solo. Al tocar "Consultar" se abre la pagina del municipio y **el dominio
    queda copiado**: en la pagina se toca el campo de la patente y se pega
@@ -228,7 +228,7 @@ en cada municipio** (y el total adeudado, si se sabe). No importa de cuando son.
 5. **Seguir el pago.** Cada municipio pasa por **Impaga → En gestion →
    Pagada** (o Anulada). Al marcarlo pagado se anota sola la fecha de pago.
 6. **El seguimiento general**, arriba en la solapa: un renglon por auto con
-   sus municipios, cuantas multas hay por resolver y cuanto se debe. El numero
+   sus municipios, cuantas multas hay por resolver y quien las resuelve. El numero
    rojo del menu cuenta las multas por resolver.
 
 **Truco para que el dominio se complete solo:** algunas paginas muestran la

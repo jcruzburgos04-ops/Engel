@@ -165,17 +165,6 @@ export const ESTADOS_INFRACCION = {
   anulada: { texto: 'Anulada', clase: '' }
 };
 
-// Lee un monto escrito a la argentina: "85.000", "85000,50", "$ 12.500".
-// Devuelve el texto listo para la base ("85000.50"), '' si esta vacio, o
-// null si no se entiende.
-export function leerMonto(texto) {
-  let t = String(texto ?? '').replace(/[$\s]/g, '');
-  if (!t) return '';
-  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
-  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
-  return /^\d+(\.\d{1,2})?$/.test(t) ? t : null;
-}
-
 // Copia un texto al portapapeles. Primero de la forma "vieja", que es
 // inmediata y no depende de permisos: asi queda copiado antes de que se
 // abra otra pestana y la pagina pierda el foco.
