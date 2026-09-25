@@ -434,6 +434,7 @@ AS $$
         'id', i.id, 'portal_id', i.portal_id, 'municipio', i.jurisdiccion,
         'cantidad', i.cantidad, 'monto', i.monto, 'estado', i.estado,
         'fecha_pago', i.fecha_pago, 'observaciones', i.observaciones,
+        'responsable', i.responsable,
         'actualizado_en', i.actualizado_en,
         'actualizado_por_nombre', (SELECT nombre FROM public.perfiles p
                                     WHERE p.id = COALESCE(i.actualizado_por, i.creado_por)),
@@ -489,8 +490,9 @@ AS $$
       max(b.actualizado_en) AS actualizado_en,
       jsonb_agg(jsonb_build_object(
         'municipio', b.jurisdiccion, 'cantidad', b.cantidad,
-        'monto', b.monto, 'estado', b.estado
-      ) ORDER BY b.abierta DESC, b.jurisdiccion) AS municipios
+        'monto', b.monto, 'estado', b.estado, 'responsable', b.responsable
+      ) ORDER BY b.abierta DESC, b.jurisdiccion) AS municipios,
+      string_agg(DISTINCT NULLIF(btrim(b.responsable), ''), ', ') AS responsables
     FROM base b JOIN public.vehiculos v ON v.id = b.vehiculo_id
     GROUP BY v.id
   ),
@@ -499,7 +501,8 @@ AS $$
     WHERE btrim(COALESCE(p_q, '')) = ''
        OR (public.normalizar_dominio(p_q) <> '' AND a.dominio LIKE '%' || public.normalizar_dominio(p_q) || '%')
        OR EXISTS (SELECT 1 FROM jsonb_array_elements(a.municipios) m
-                   WHERE m ->> 'municipio' ILIKE '%' || btrim(p_q) || '%')
+                   WHERE m ->> 'municipio' ILIKE '%' || btrim(p_q) || '%'
+                      OR m ->> 'responsable' ILIKE '%' || btrim(p_q) || '%')
   )
   SELECT jsonb_build_object(
     'filas', COALESCE((
@@ -507,7 +510,8 @@ AS $$
         'dominio', a.dominio,
         'vehiculo', NULLIF(btrim(concat_ws(' ', a.marca, a.modelo, a.anio::text)), ''),
         'abiertas', a.abiertas, 'monto_abierto', a.monto_abierto, 'total', a.total,
-        'municipios', a.municipios, 'actualizado_en', a.actualizado_en
+        'municipios', a.municipios, 'responsables', a.responsables,
+        'actualizado_en', a.actualizado_en
       ) ORDER BY (a.abiertas > 0) DESC, a.abiertas DESC, a.dominio)
       FROM buscados a
       WHERE CASE COALESCE(NULLIF(p_filtro, ''), 'abiertas')

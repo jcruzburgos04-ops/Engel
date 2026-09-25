@@ -481,14 +481,29 @@ td.acciones { text-align: right; white-space: nowrap; }
 }
 .carga__fila label { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
 .carga__rotulo { font-size: .75rem; font-weight: 600; color: var(--texto-suave); }
-.carga__fila:not(:first-child) .carga__rotulo { display: none; }
+.carga__bloque:not(:first-child) .carga__rotulo { display: none; }
+.carga__bloque { margin-bottom: .75rem; }
+.carga__bloque .carga__fila { margin-bottom: .4rem; }
+.carga__extra { display: flex; gap: .5rem; align-items: center; }
+.carga__extra .carga__responsable { flex: 1; min-width: 0; }
+.carga__detalles { width: 100%; margin-top: .4rem; }
+.boton--con-detalles { border-color: var(--primario); color: var(--primario-oscuro); }
 
 /* Tabla de municipios de un dominio. */
 .tabla-municipios td { vertical-align: middle; }
 .tabla-municipios .campo { gap: .15rem; }
-.tabla-municipios .municipio__cantidad { width: 5.5rem; }
-.tabla-municipios .municipio__monto { width: 9rem; }
-.tabla-municipios select { min-width: 8.5rem; }
+.tabla-municipios .municipio__cantidad { width: 4.5rem; }
+.tabla-municipios .municipio__monto { width: 7.5rem; }
+.tabla-municipios select { min-width: 7.5rem; }
+.tabla-municipios td:first-child { min-width: 10.5rem; }
+.tabla-municipios th, .tabla-municipios td { padding-left: .5rem; padding-right: .5rem; }
+.tabla-municipios .archivo { max-width: 9rem; }
+.tabla-municipios .archivo a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.municipio__detalles { margin-top: .35rem; }
+.tabla-municipios .municipio__responsable { width: 8.5rem; }
+.tabla-municipios .acciones { white-space: nowrap; }
+.municipio__fila-detalles td { background: var(--fondo); padding-top: .25rem; }
+.municipio__fila-detalles textarea { width: 100%; }
 .municipio td:first-child { border-left: 4px solid transparent; }
 .municipio--impaga td:first-child { border-left-color: var(--error); }
 .municipio--en_gestion td:first-child { border-left-color: var(--alerta); }
@@ -496,11 +511,8 @@ td.acciones { text-align: right; white-space: nowrap; }
 .municipio__preguntar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 
 @media (max-width: 560px) {
-  .carga__fila {
-    grid-template-columns: 1fr 5rem;
-    padding-bottom: .6rem;
-    border-bottom: 1px solid var(--borde-suave);
-  }
+  .carga__fila { grid-template-columns: 1fr 5rem; }
+  .carga__bloque { padding-bottom: .6rem; border-bottom: 1px solid var(--borde-suave); }
   .carga__fila .carga__rotulo { display: block !important; }
   .carga__fila > :nth-child(3) { grid-column: 1 / 2; }
   .carga__fila > button { justify-self: end; align-self: end; }

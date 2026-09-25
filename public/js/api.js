@@ -91,7 +91,7 @@ async function perfilDe(usuario) {
 // sola (Netlify) pero el SQL se corre a mano, asi que pueden quedar
 // desfasadas: si la base es mas vieja, conviene decirlo con todas las letras
 // en vez de dejar que Postgres tire un error que nadie entiende.
-export const VERSION_ESQUEMA = 5;
+export const VERSION_ESQUEMA = 6;
 
 // Devuelve la version del esquema instalado, o null si no se pudo averiguar.
 // Una base vieja no tiene la funcion version_esquema(): eso cuenta como 1.

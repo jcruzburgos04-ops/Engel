@@ -403,6 +403,20 @@ SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"
 SELECT verificar('escribir el nombre de una pagina la vincula',
   (SELECT portal_id IS NOT NULL FROM public.infracciones WHERE lower(jurisdiccion) = 'provincia de buenos aires'));
 
+SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"Pilar","cantidad":1,"responsable":"Gestoria Lopez","detalles":"Pidio el acta por mail"}]}'::jsonb);
+SELECT verificar('se guarda quien las resuelve y los detalles',
+  (SELECT responsable = 'Gestoria Lopez' AND observaciones = 'Pidio el acta por mail'
+     FROM public.infracciones WHERE jurisdiccion = 'Pilar'));
+
+SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"pilar","cantidad":1}]}'::jsonb);
+SELECT verificar('volver a cargar sin esos datos no los borra',
+  (SELECT responsable = 'Gestoria Lopez' AND observaciones = 'Pidio el acta por mail'
+     FROM public.infracciones WHERE jurisdiccion = 'Pilar'));
+
+SELECT verificar('la ficha del dominio trae quien las resuelve y los detalles',
+  (SELECT count(*) = 1 FROM jsonb_array_elements(public.infracciones_de_dominio('AB123CD') -> 'infracciones') i
+    WHERE i ->> 'responsable' = 'Gestoria Lopez' AND i ->> 'observaciones' = 'Pidio el acta por mail'));
+
 SELECT public.guardar_infracciones('{"dominio":"AB123CD","filas":[{"municipio":"caba","cantidad":5}]}'::jsonb);
 SELECT verificar('volver a cargar un municipio actualiza la cantidad, no lo duplica',
   (SELECT count(*) = 1 AND max(cantidad) = 5 AND max(monto) = 85000
@@ -488,6 +502,12 @@ SELECT verificar('el listado trae un renglon por auto con sus municipios',
       AND (l -> 'resumen' ->> 'monto_abierto')::numeric = 97000.50
       AND (l -> 'resumen' ->> 'autos_con_abiertas')::int = 2
      FROM public.listar_infracciones('abiertas', '') l));
+
+SELECT verificar('el listado dice quien resuelve cada auto y busca por esa persona',
+  (SELECT (f ->> 'responsables') = 'Gestoria Lopez'
+     FROM jsonb_array_elements(public.listar_infracciones('todas', '') -> 'filas') f
+    WHERE f ->> 'dominio' = 'AB123CD')
+  AND jsonb_array_length(public.listar_infracciones('todas', 'lopez') -> 'filas') = 1);
 
 SELECT verificar('el listado busca por dominio y por municipio',
   (SELECT jsonb_array_length(public.listar_infracciones('todas', 'AC456') -> 'filas') = 1

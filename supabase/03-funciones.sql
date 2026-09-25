@@ -55,9 +55,10 @@ $$;
 --   3 = sugerencias de dominio mientras se escribe en el buscador
 --   4 = infracciones: multas por auto, paginas de consulta y pagos
 --   5 = infracciones por municipio: cantidad por dominio, sin cargar una por una
+--   6 = infracciones: quien las resuelve y detalles
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 5 $$;
+AS $$ SELECT 6 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -460,7 +461,8 @@ $$;
 
 -- Carga cuantas infracciones tiene un dominio en uno o varios municipios.
 --   {"dominio": "AB123CD", "marca": "...", "modelo": "...",
---    "filas": [{"municipio": "CABA", "cantidad": 3, "monto": "85000", "estado": "impaga"}, ...]}
+--    "filas": [{"municipio": "CABA", "cantidad": 3, "monto": "85000", "estado": "impaga",
+--               "responsable": "Gestoria Lopez", "detalles": "..."}, ...]}
 -- Si ese municipio ya estaba cargado para el auto, se actualiza (no se
 -- duplica). Si el dominio no estaba en el sistema (un auto en stock), se da
 -- de alta. Devuelve cuantos municipios se guardaron.
@@ -476,6 +478,8 @@ DECLARE
   v_cantidad_texto text;
   v_monto_texto text;
   v_estado text;
+  v_responsable text;
+  v_detalles text;
   v_guardadas integer := 0;
 BEGIN
   IF NOT public.es_miembro() THEN
@@ -499,6 +503,8 @@ BEGIN
     v_cantidad_texto := COALESCE(NULLIF(trim(v_fila ->> 'cantidad'), ''), '1');
     v_monto_texto := NULLIF(trim(v_fila ->> 'monto'), '');
     v_estado := COALESCE(NULLIF(v_fila ->> 'estado', ''), 'impaga');
+    v_responsable := public.txt(v_fila, 'responsable', 120);
+    v_detalles := public.txt(v_fila, 'detalles', 2000);
 
     -- Con la pagina elegida, el municipio es su nombre; con el nombre
     -- escrito, se busca si coincide con alguna pagina cargada.
@@ -525,16 +531,20 @@ BEGIN
     END IF;
 
     INSERT INTO public.infracciones (
-      vehiculo_id, portal_id, jurisdiccion, cantidad, monto, estado, creado_por, actualizado_por
+      vehiculo_id, portal_id, jurisdiccion, cantidad, monto, estado,
+      responsable, observaciones, creado_por, actualizado_por
     ) VALUES (
       v_vehiculo, v_portal, v_municipio, v_cantidad_texto::integer, v_monto_texto::numeric,
-      v_estado, auth.uid(), auth.uid()
+      v_estado, v_responsable, v_detalles, auth.uid(), auth.uid()
     )
     ON CONFLICT (vehiculo_id, lower(btrim(jurisdiccion))) DO UPDATE SET
       cantidad = EXCLUDED.cantidad,
       monto = COALESCE(EXCLUDED.monto, public.infracciones.monto),
       estado = EXCLUDED.estado,
       portal_id = COALESCE(EXCLUDED.portal_id, public.infracciones.portal_id),
+      -- Quien resuelve y los detalles solo se pisan si vienen escritos.
+      responsable = COALESCE(NULLIF(EXCLUDED.responsable, ''), public.infracciones.responsable),
+      observaciones = COALESCE(NULLIF(EXCLUDED.observaciones, ''), public.infracciones.observaciones),
       actualizado_por = auth.uid();
 
     v_guardadas := v_guardadas + 1;

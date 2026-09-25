@@ -73,7 +73,10 @@ function botonConsultar(portal, dominio, clase = 'boton') {
       href: linkDePortal(portal.url, d),
       target: '_blank',
       rel: 'noopener noreferrer',
-      title: completaSolo ? 'Abre la pagina con el dominio ya puesto' : `Abre la pagina y copia ${d} para pegarlo`,
+      title: completaSolo
+        ? `Abre la pagina de ${portal.nombre} con el dominio ya puesto`
+        : `Abre la pagina de ${portal.nombre} y copia ${d} para pegarlo`,
+      'aria-label': `Consultar en ${portal.nombre}`,
       onClick: () => {
         const copiado = copiarAlPortapapeles(d);
         if (completaSolo) {
@@ -85,10 +88,32 @@ function botonConsultar(portal, dominio, clase = 'boton') {
         }
       }
     },
-    `🔎 Consultar en ${portal.nombre}`
+    '🔎 Consultar'
   );
 }
 
+
+// Boton que muestra u oculta los detalles. Mientras estan ocultos, el boton
+// avisa si hay algo escrito.
+// `contenedor` es lo que se muestra u oculta (por defecto, el mismo texto).
+function botonDetalles(area, { contenedor = area, alCambiar } = {}) {
+  const boton = h('button', { class: 'boton boton--chico boton--detalles', type: 'button' });
+  const pintar = () => {
+    const hay = area.value.trim() !== '';
+    boton.textContent = contenedor.hidden ? (hay ? '📝 Ver detalles' : '📝 Detalles') : '📝 Ocultar detalles';
+    boton.classList.toggle('boton--con-detalles', hay);
+    boton.setAttribute('aria-expanded', String(!contenedor.hidden));
+  };
+  boton.addEventListener('click', () => {
+    contenedor.hidden = !contenedor.hidden;
+    if (!contenedor.hidden) area.focus();
+    if (alCambiar) alCambiar(!contenedor.hidden);
+    pintar();
+  });
+  area.addEventListener('input', pintar);
+  pintar();
+  return boton;
+}
 
 // ---------------------------------------------------------------------
 // Cargar: un dominio y cuantas infracciones tiene en cada municipio
@@ -103,6 +128,14 @@ export function abrirCargaInfracciones({ dominio = '', portales = [], municipio 
   const idLista = `municipios-${Date.now()}`;
   const conocidos = h('datalist', { id: idLista }, ...portales.map((p) => h('option', { value: p.nombre })));
 
+  // Quien las resuelve: se sugieren los nombres del equipo, pero se puede
+  // escribir cualquiera (un gestor, por ejemplo).
+  const idEquipo = `equipo-${Date.now()}`;
+  const equipo = h('datalist', { id: idEquipo });
+  api.usuarios()
+    .then(({ usuarios }) => equipo.append(...usuarios.map((u) => h('option', { value: u.nombre }))))
+    .catch(() => {});
+
   const filas = h('div', { class: 'carga-municipios' });
 
   function agregarFila(nombre = '') {
@@ -110,21 +143,42 @@ export function abrirCargaInfracciones({ dominio = '', portales = [], municipio 
     municipioInput.setAttribute('list', idLista);
     const cantidad = h('input', { type: 'number', min: 1, step: 1, value: '1', inputMode: 'numeric', class: 'carga__cantidad' });
     const monto = h('input', { inputMode: 'decimal', placeholder: 'Total $ (opcional)', class: 'carga__monto' });
-    const fila = h(
+    const responsable = h('input', { placeholder: 'Quien las resuelve (opcional)', class: 'carga__responsable' });
+    responsable.setAttribute('list', idEquipo);
+    const detalles = h('textarea', { rows: 2, placeholder: 'Detalles (opcional)', class: 'carga__detalles', hidden: true });
+
+    const bloque = h(
       'div',
-      { class: 'carga__fila' },
-      h('label', {}, h('span', { class: 'carga__rotulo' }, 'Municipio'), municipioInput),
-      h('label', {}, h('span', { class: 'carga__rotulo' }, 'Infracciones'), cantidad),
-      h('label', {}, h('span', { class: 'carga__rotulo' }, 'Total adeudado'), monto),
-      h('button', {
-        class: 'boton boton--chico',
-        type: 'button',
-        title: 'Quitar este municipio',
-        onClick: () => { if (filas.children.length > 1) fila.remove(); }
-      }, '×')
+      { class: 'carga__bloque' },
+      h(
+        'div',
+        { class: 'carga__fila' },
+        h('label', {}, h('span', { class: 'carga__rotulo' }, 'Municipio'), municipioInput),
+        h('label', {}, h('span', { class: 'carga__rotulo' }, 'Infracciones'), cantidad),
+        h('label', {}, h('span', { class: 'carga__rotulo' }, 'Total adeudado'), monto),
+        h('button', {
+          class: 'boton boton--chico',
+          type: 'button',
+          title: 'Quitar este municipio',
+          onClick: () => { if (filas.children.length > 1) bloque.remove(); }
+        }, '×')
+      ),
+      h(
+        'div',
+        { class: 'carga__extra' },
+        responsable,
+        botonDetalles(detalles)
+      ),
+      detalles
     );
-    fila.leer = () => ({ municipio: municipioInput.value.trim(), cantidad: cantidad.value, monto: monto.value });
-    filas.append(fila);
+    bloque.leer = () => ({
+      municipio: municipioInput.value.trim(),
+      cantidad: cantidad.value,
+      monto: monto.value,
+      responsable: responsable.value.trim(),
+      detalles: detalles.value.trim()
+    });
+    filas.append(bloque);
     return { municipioInput, cantidad };
   }
 
@@ -143,14 +197,14 @@ export function abrirCargaInfracciones({ dominio = '', portales = [], municipio 
 
     const cargadas = [];
     for (const fila of filas.children) {
-      const { municipio: m, cantidad, monto } = fila.leer();
-      if (!m && !monto) continue; // renglon vacio: se ignora
+      const { municipio: m, cantidad, monto, responsable, detalles } = fila.leer();
+      if (!m && !monto && !responsable && !detalles) continue; // renglon vacio: se ignora
       if (!m) return mostrarError('Falta el municipio en uno de los renglones.');
       const n = leerCantidad(cantidad);
       if (n === null) return mostrarError(`La cantidad de infracciones en ${m} tiene que ser un numero mayor a cero.`);
       const total = leerMonto(monto);
       if (total === null) return mostrarError(`${m}: ${AYUDA_MONTO}`);
-      cargadas.push({ municipio: m, cantidad: n, monto: total });
+      cargadas.push({ municipio: m, cantidad: n, monto: total, responsable, detalles });
     }
     if (!cargadas.length) return mostrarError('Pone al menos un municipio con su cantidad de infracciones.');
 
@@ -178,6 +232,7 @@ export function abrirCargaInfracciones({ dominio = '', portales = [], municipio 
       {},
       error,
       conocidos,
+      equipo,
       h('div', { class: 'campos' }, campo('Dominio', sugeridor.contenedor)),
       h('p', { class: 'tenue', style: 'font-size:.85rem;margin:.9rem 0 .4rem' },
         'Cuantas infracciones tiene en cada municipio. Si el municipio ya estaba cargado para este auto, se actualiza.'),
@@ -359,7 +414,9 @@ function indicador(valor, etiqueta, modificador = '') {
 
 function chipMunicipio(m) {
   const info = ESTADOS_INFRACCION[m.estado] || { clase: '' };
-  return h('span', { class: `etiqueta ${info.clase}`, title: `${info.texto || m.estado}${m.monto ? ` · ${pesos(m.monto)}` : ''}` },
+  const titulo = [info.texto || m.estado, m.monto ? pesos(m.monto) : '', m.responsable ? `resuelve ${m.responsable}` : '']
+    .filter(Boolean).join(' · ');
+  return h('span', { class: `etiqueta ${info.clase}`, title: titulo },
     `${m.municipio} · ${m.cantidad}`);
 }
 
@@ -374,7 +431,8 @@ function tablaAutos(filas) {
       {},
       h('thead', {}, h('tr', {},
         h('th', {}, 'Dominio'), h('th', {}, 'Auto'), h('th', {}, 'Infracciones por municipio'),
-        h('th', {}, 'Por resolver'), h('th', {}, 'Adeudado'), h('th', {}, 'Actualizado'))),
+        h('th', {}, 'Por resolver'), h('th', {}, 'Adeudado'), h('th', {}, 'Quien las resuelve'),
+        h('th', {}, 'Actualizado'))),
       h(
         'tbody',
         {},
@@ -387,6 +445,7 @@ function tablaAutos(filas) {
             h('td', {}, h('div', { class: 'chips' }, ...f.municipios.map(chipMunicipio))),
             h('td', {}, f.abiertas ? h('strong', {}, String(f.abiertas)) : h('span', { class: 'etiqueta etiqueta--ok' }, 'Al dia')),
             h('td', {}, f.abiertas ? pesos(f.monto_abierto) : '—'),
+            h('td', {}, f.responsables || h('span', { class: 'tenue' }, '—')),
             h('td', { class: 'mini' }, fecha(f.actualizado_en))
           )
         )
@@ -420,7 +479,7 @@ export async function vistaInfracciones() {
   const indicadores = h('div', { class: 'grilla grilla--tarjetas', style: 'margin-bottom:1.25rem' });
   const cuerpoTabla = h('div', {});
   const filtro = opciones(h('select', {}), FILTROS, recordado('infracciones:filtro', 'abiertas'));
-  const texto = h('input', { type: 'search', placeholder: 'Buscar por dominio o municipio', value: recordado('infracciones:texto', '') });
+  const texto = h('input', { type: 'search', placeholder: 'Buscar por dominio, municipio o quien resuelve', value: recordado('infracciones:texto', '') });
 
   function pintarListado(datos) {
     const r = datos.resumen || {};
@@ -511,7 +570,7 @@ export async function vistaInfracciones() {
 
 function comprobantes(infraccion, recargar) {
   const entrada = h('input', { type: 'file', multiple: true, style: 'display:none' });
-  const boton = h('button', { class: 'boton boton--chico', type: 'button', onClick: () => entrada.click() }, '⬆️ Comprobante');
+  const boton = h('button', { class: 'boton boton--chico', type: 'button', onClick: () => entrada.click() }, '⬆️ Subir');
 
   entrada.addEventListener('change', async () => {
     if (!entrada.files.length) return;
@@ -587,9 +646,11 @@ function textoUltimaConsulta(portal) {
   return `${ultima.resultado === 'sin_infracciones' ? '✅ Sin multas' : '⚠️ Con multas'} · ${ultima.consultado_por_nombre || 'alguien'}, ${fechaHora(ultima.consultado_en)}`;
 }
 
-function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar }) {
+function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar, equipo = [] }) {
   const d = datos.dominio;
   const renglones = renglonesPorMunicipio(datos);
+  const idEquipo = `equipo-${d}`;
+  const listaEquipo = h('datalist', { id: idEquipo }, ...equipo.map((nombre) => h('option', { value: nombre })));
 
   if (!renglones.length) {
     return vacio('Todavia no hay municipios. Agrega las paginas de consulta en la solapa Infracciones, o carga un municipio con "Cargar infracciones".', '🌐');
@@ -633,7 +694,7 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar }) {
         { class: 'municipio municipio--vacio' },
         celdaMunicipio,
         celdaConsultar,
-        h('td', { colSpan: 4 },
+        h('td', { colSpan: 5 },
           h('div', { class: 'municipio__preguntar' },
             h('span', { class: 'mini' }, '¿Que encontraste?'),
             h('button', { class: 'boton boton--chico', type: 'button', onClick: () => registrar(portal, 'sin_infracciones') }, '✅ No tiene'),
@@ -645,6 +706,23 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar }) {
     const cantidad = h('input', { type: 'number', min: 1, step: 1, value: String(infraccion.cantidad), inputMode: 'numeric', class: 'municipio__cantidad' });
     const monto = h('input', { value: montoParaEditar(infraccion.monto), inputMode: 'decimal', placeholder: '—', class: 'municipio__monto' });
     const selectorEstado = opciones(h('select', {}), LISTA_ESTADOS, infraccion.estado);
+    const responsable = h('input', { value: infraccion.responsable || '', placeholder: '—', class: 'municipio__responsable' });
+    responsable.setAttribute('list', idEquipo);
+
+    // Los detalles van en un renglon aparte, oculto hasta que se pide verlo.
+    const detalles = h('textarea', { rows: 3, placeholder: 'Detalles: tramite, gestor, plan de pago, a quien se llamo…' });
+    detalles.value = infraccion.observaciones || '';
+    const claveAbierto = `infracciones:detalles:${infraccion.id}`;
+    const filaDetalles = h(
+      'tr',
+      { class: 'municipio__fila-detalles', hidden: !recordado(claveAbierto, false) },
+      h('td', { colSpan: 8 }, campoMulta(infraccion, detalles, 'observaciones', { alConfirmar: undefined }))
+    );
+    const verDetalles = botonDetalles(detalles, {
+      contenedor: filaDetalles,
+      alCambiar: (abierto) => recordar(claveAbierto, abierto)
+    });
+    celdaMunicipio.append(h('div', { class: 'municipio__detalles' }, verDetalles));
 
     const quitar = async () => {
       if (!(await confirmar(`Vas a quitar ${nombre} de las infracciones de ${formatearDominio(d)}. Queda una copia en el historial.`, { textoBoton: 'Quitar' }))) return;
@@ -657,7 +735,7 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar }) {
       }
     };
 
-    return h(
+    return [h(
       'tr',
       { class: `municipio municipio--${infraccion.estado}` },
       celdaMunicipio,
@@ -672,23 +750,39 @@ function tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar }) {
       })),
       h('td', {}, campoMulta(infraccion, selectorEstado, 'estado'),
         infraccion.estado === 'pagada' && infraccion.fecha_pago ? h('div', { class: 'mini' }, `el ${fecha(infraccion.fecha_pago)}`) : null),
+      h('td', {}, campoMulta(infraccion, responsable, 'responsable')),
       h('td', {}, comprobantes(infraccion, recargar)),
-      h('td', { class: 'acciones' }, h('button', { class: 'boton boton--chico', type: 'button', title: 'Quitar este municipio', onClick: quitar }, 'Quitar'))
-    );
+      h('td', { class: 'acciones' },
+        h('button', { class: 'boton boton--chico', type: 'button', title: 'Quitar este municipio', onClick: quitar }, 'Quitar'))
+    ), filaDetalles];
   });
 
   return h(
     'div',
     { class: 'tabla-scroll' },
+    listaEquipo,
     h(
       'table',
       { class: 'tabla-municipios' },
       h('thead', {}, h('tr', {},
         h('th', {}, 'Municipio'), h('th', {}, 'Consultar'), h('th', {}, 'Infracciones'),
-        h('th', {}, 'Total adeudado'), h('th', {}, 'Estado'), h('th', {}, 'Comprobante'), h('th', {}))),
+        h('th', {}, 'Total adeudado'), h('th', {}, 'Estado'), h('th', {}, 'Quien las resuelve'),
+        h('th', {}, 'Comprobante'), h('th', {}))),
       h('tbody', {}, ...filas)
     )
   );
+}
+
+// Nombres del equipo para sugerir en "Quien las resuelve". Se piden una vez.
+let nombresDelEquipo = [];
+let pedidoEquipo = null;
+function cargarNombresDelEquipo() {
+  if (!pedidoEquipo) {
+    pedidoEquipo = api.usuarios()
+      .then(({ usuarios }) => { nombresDelEquipo = usuarios.map((u) => u.nombre).filter(Boolean); })
+      .catch(() => { pedidoEquipo = null; });
+  }
+  return pedidoEquipo;
 }
 
 export async function vistaInfraccionesDominio({ dominio }) {
@@ -754,13 +848,14 @@ export async function vistaInfraccionesDominio({ dominio }) {
           h('span', { class: 'tenue' }, `"Consultar" abre la pagina y copia ${d} para pegarlo`),
           h('span', { class: 'derecha' },
             h('button', { class: 'boton boton--primario boton--chico', type: 'button', onClick: () => cargar('') }, '➕ Agregar municipio'))),
-        tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar })
+        tablaMunicipios(datos, { recargar, recargarCuandoSePueda, cargar, equipo: nombresDelEquipo })
       ),
       v ? null : h('p', { class: 'tenue', style: 'font-size:.85rem' },
         'Este dominio todavia no esta cargado en el sistema. Si le cargas infracciones, se da de alta.')
     ].filter(Boolean);
   }
 
-  contenedor.append(...pintar(await api.infraccionesDeDominio(d)));
+  const [datos] = await Promise.all([api.infraccionesDeDominio(d), cargarNombresDelEquipo()]);
+  contenedor.append(...pintar(datos));
   return contenedor;
 }

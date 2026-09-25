@@ -72,6 +72,7 @@ const salida = `-- =============================================================
 --   4. El buscador sugiere dominios mientras se escribe.
 --   5. Infracciones: cuantas multas tiene cada auto en cada municipio,
 --      paginas de consulta y seguimiento del pago.
+--   6. Infracciones: quien las resuelve y detalles.
 --
 -- Se puede correr aunque ya hayas aplicado alguno: no repite nada.
 -- Al final aparece una tabla con el resultado.
@@ -278,7 +279,7 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 5 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 6 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
   SELECT 5, 'Sugerencias del buscador',
@@ -290,8 +291,11 @@ SELECT control, estado, detalle FROM (
          CASE WHEN (SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
                       AND tablename IN ('portales_infracciones', 'infracciones',
                                         'infracciones_archivos', 'consultas_infracciones')) = 4
+              AND EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_schema = 'public' AND table_name = 'infracciones'
+                             AND column_name = 'responsable')
               THEN 'OK' ELSE 'FALTA' END,
-         'cantidad de multas por municipio y seguimiento del pago'
+         'por municipio, con quien las resuelve y detalles'
   UNION ALL
   SELECT 7, 'Tus datos',
          'INFO',

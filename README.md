@@ -207,11 +207,15 @@ en cada municipio** (y el total adeudado, si se sabe). No importa de cuando son.
    y el link de la pagina donde se consultan las multas, copiado de la barra
    del navegador.
 2. **Cargar infracciones.** Boton "Cargar infracciones": el dominio y, en cada
-   renglon, un municipio y la cantidad. "Otro municipio" suma renglones. Si ese
-   municipio ya estaba cargado para el auto, se actualiza la cantidad.
+   renglon, un municipio y la cantidad. Opcionalmente, **quien las resuelve**
+   (sugiere los nombres del equipo, pero puede ser cualquiera, por ejemplo un
+   gestor) y **detalles**, que quedan ocultos detras del boton "📝 Detalles".
+   "Otro municipio" suma renglones. Si ese municipio ya estaba cargado para el
+   auto, se actualiza la cantidad.
 3. **Ver un auto.** Se escribe el dominio (sugiere mientras escribis) y aparece
-   un renglon por municipio: el boton "Consultar en …", la cantidad, el total
-   adeudado, el estado y el comprobante. Todo se edita ahi mismo y se guarda
+   un renglon por municipio: el boton "Consultar", la cantidad, el total
+   adeudado, el estado, quien las resuelve y el comprobante. Los detalles se
+   ven tocando "📝 Ver detalles" debajo del municipio. Todo se edita ahi mismo y se guarda
    solo. Al tocar "Consultar" se abre la pagina del municipio y **el dominio
    queda copiado**: en la pagina se toca el campo de la patente y se pega
    (Ctrl+V, o mantener apretado en el celular). El captcha lo completa la

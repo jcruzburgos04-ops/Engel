@@ -337,12 +337,12 @@ await p.waitForSelector('.sugerencia', { timeout: 10000 });
 await p.click('.sugerencia');
 await p.waitForSelector('tr.municipio', { timeout: 15000 });
 ok(/#\/infracciones\/AB123CD$/.test(p.url()), 'al elegir la sugerencia abre las multas del auto');
-ok((await p.locator('tr.municipio a:has-text("Consultar en")').count()) === 2, 'hay un renglon con boton de consulta por municipio');
+ok((await p.locator('tr.municipio a[aria-label^="Consultar en"]').count()) === 2, 'hay un renglon con boton de consulta por municipio');
 
 // El boton abre la pagina del municipio con la patente ya puesta.
 const [pestanaCaba] = await Promise.all([
   p.context().waitForEvent('page', { timeout: 10000 }),
-  p.click('a:has-text("Consultar en CABA")')
+  p.click('a[aria-label="Consultar en CABA"]')
 ]);
 ok(/patente=AB123CD/.test(pestanaCaba.url()), `abre CABA con el dominio en el link (${pestanaCaba.url().replace(FALSO, '')})`);
 await pestanaCaba.close();
@@ -351,7 +351,7 @@ await pestanaCaba.close();
 await p.evaluate(() => navigator.clipboard.writeText('otra cosa'));
 const [pestanaProvincia] = await Promise.all([
   p.context().waitForEvent('page', { timeout: 10000 }),
-  p.click('a:has-text("Consultar en Provincia")')
+  p.click('a[aria-label="Consultar en Provincia"]')
 ]);
 await pestanaProvincia.close();
 const portapapeles = await p.evaluate(() => navigator.clipboard.readText());
@@ -373,12 +373,28 @@ await p.locator('.modal .carga__monto').first().fill('85.000');
 await p.click('.modal button:has-text("Otro municipio")');
 await p.locator('.modal .carga__municipio').nth(1).fill('Pilar');
 await p.locator('.modal .carga__cantidad').nth(1).fill('2');
+// Quien las resuelve y detalles (los detalles se abren con un boton).
+ok(await p.locator('.modal .carga__detalles').nth(1).isHidden(), 'en la carga los detalles arrancan ocultos');
+await p.locator('.modal .carga__responsable').nth(1).fill('Gestoria Lopez');
+await p.locator('.modal .carga__bloque').nth(1).locator('button:has-text("Detalles")').click();
+await p.locator('.modal .carga__detalles').nth(1).fill('Pidio el acta por mail');
 await p.click('.modal__pie button:has-text("Guardar")');
 await p.waitForSelector('.modal', { state: 'detached', timeout: 15000 });
 await p.waitForSelector('tr.municipio:has(strong:text-is("Pilar"))', { timeout: 15000 });
 const resumenMultas = await p.locator('.encabezado').innerText();
 ok(/5 multa\(s\) por resolver en 2 municipio\(s\)/.test(resumenMultas) && /85\.000/.test(resumenMultas),
   `muestra cuantas hay y cuanto se debe (${resumenMultas.split('\n')[1] || ''})`);
+ok((await renglon('Pilar').locator('input.municipio__responsable').inputValue()) === 'Gestoria Lopez', 'queda anotado quien las resuelve');
+const filaDetallesPilar = p.locator('tr.municipio:has(strong:text-is("Pilar")) + tr.municipio__fila-detalles');
+ok(await filaDetallesPilar.isHidden(), 'los detalles no se ven hasta que se piden');
+await renglon('Pilar').locator('button:has-text("Ver detalles")').click();
+ok((await filaDetallesPilar.locator('textarea').inputValue()) === 'Pidio el acta por mail', 'al tocar "Ver detalles" aparecen');
+await renglon('Pilar').locator('button:has-text("Ocultar detalles")').click();
+const responsableCaba = renglon('CABA').locator('input.municipio__responsable');
+await responsableCaba.fill('Juan Cruz');
+await responsableCaba.blur();
+await p.waitForSelector('tr.municipio .autoguardado__marca--ok', { timeout: 10000 });
+ok(true, 'quien las resuelve se edita en la tabla y se guarda solo');
 await p.waitForTimeout(500);
 ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '5', 'el menu cuenta las multas por resolver');
 await captura(p, '28-infracciones-auto');
@@ -424,6 +440,7 @@ await p.click('a.menu__link[href="#/infracciones"]');
 await p.waitForSelector('#paginas-de-consulta', { timeout: 15000 });
 const filaAuto = await p.locator('.tarjeta', { hasText: 'Seguimiento' }).locator('tbody tr').first().innerText();
 ok(/CABA · 4/.test(filaAuto) && /Pilar · 2/.test(filaAuto), `el listado muestra los municipios del auto (${filaAuto.replace(/\s+/g, ' ').slice(0, 60)})`);
+ok(/Gestoria Lopez/.test(filaAuto) && /Juan Cruz/.test(filaAuto), 'el listado dice quien resuelve cada auto');
 await captura(p, '29-infracciones');
 
 // Cargar un auto en stock directamente desde el listado.

@@ -196,12 +196,18 @@ CREATE TABLE IF NOT EXISTS public.infracciones (
   estado          text NOT NULL DEFAULT 'impaga'
                   CHECK (estado IN ('impaga', 'en_gestion', 'pagada', 'anulada')),
   fecha_pago      date,
+  -- Quien se ocupa de resolverlas (alguien del equipo, un gestor…).
+  responsable     text NOT NULL DEFAULT '',
+  -- Detalles libres: se muestran solo si se piden.
   observaciones   text NOT NULL DEFAULT '',
   creado_por      uuid REFERENCES public.perfiles (id),
   creado_en       timestamptz NOT NULL DEFAULT now(),
   actualizado_en  timestamptz NOT NULL DEFAULT now(),
   actualizado_por uuid REFERENCES public.perfiles (id)
 );
+
+-- Para las bases que ya tenian la tabla de antes.
+ALTER TABLE public.infracciones ADD COLUMN IF NOT EXISTS responsable text NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_infracciones_vehiculo ON public.infracciones (vehiculo_id);
 CREATE INDEX IF NOT EXISTS idx_infracciones_estado ON public.infracciones (estado);
