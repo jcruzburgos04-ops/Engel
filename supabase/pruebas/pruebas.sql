@@ -523,6 +523,9 @@ SELECT verificar('un auto con todo pagado pasa a "al dia"',
 SELECT verificar('las estadisticas suman las multas por resolver',
   (SELECT (public.estadisticas() ->> 'infracciones_abiertas')::int = 7));
 
+SELECT verificar('las estadisticas cuentan los autos con multas por resolver',
+  (SELECT (public.estadisticas() ->> 'autos_con_infracciones')::int = 1));
+
 SELECT verificar('la copia completa incluye las infracciones',
   (SELECT jsonb_array_length(public.exportar_todo() -> 'infracciones') = 4
       AND public.exportar_todo() ? 'portales_infracciones'));

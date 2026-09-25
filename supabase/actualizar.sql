@@ -196,7 +196,7 @@ CREATE INDEX IF NOT EXISTS idx_consultas_infracciones
 
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 6 $$;
+AS $$ SELECT 7 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -751,6 +751,9 @@ AS $$
     -- Multas que todavia hay que pagar o resolver.
     'infracciones_abiertas', (SELECT COALESCE(sum(cantidad), 0) FROM public.infracciones
                                 WHERE estado IN ('impaga', 'en_gestion')),
+    -- Autos que tienen al menos una multa por resolver (el numero del menu).
+    'autos_con_infracciones', (SELECT count(DISTINCT vehiculo_id) FROM public.infracciones
+                                 WHERE estado IN ('impaga', 'en_gestion')),
     'infracciones_monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM public.infracciones
                                      WHERE estado IN ('impaga', 'en_gestion')),
     'porTenencia', COALESCE((
@@ -1212,7 +1215,7 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 6 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 7 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
   SELECT 5, 'Sugerencias del buscador',

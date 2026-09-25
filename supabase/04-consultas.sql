@@ -396,6 +396,9 @@ AS $$
     -- Multas que todavia hay que pagar o resolver.
     'infracciones_abiertas', (SELECT COALESCE(sum(cantidad), 0) FROM public.infracciones
                                 WHERE estado IN ('impaga', 'en_gestion')),
+    -- Autos que tienen al menos una multa por resolver (el numero del menu).
+    'autos_con_infracciones', (SELECT count(DISTINCT vehiculo_id) FROM public.infracciones
+                                 WHERE estado IN ('impaga', 'en_gestion')),
     'infracciones_monto_abierto', (SELECT COALESCE(sum(monto), 0) FROM public.infracciones
                                      WHERE estado IN ('impaga', 'en_gestion')),
     'porTenencia', COALESCE((

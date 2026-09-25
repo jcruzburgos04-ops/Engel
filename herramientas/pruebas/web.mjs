@@ -395,7 +395,8 @@ await responsableCaba.blur();
 await p.waitForSelector('tr.municipio .autoguardado__marca--ok', { timeout: 10000 });
 ok(true, 'quien las resuelve se edita en la tabla y se guarda solo');
 await p.waitForTimeout(500);
-ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '5', 'el menu cuenta las multas por resolver');
+ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '1',
+  'el menu cuenta autos con multas, no multas (5 multas en 1 auto: dice 1)');
 await captura(p, '28-infracciones-auto');
 
 // Cantidad invalida: avisa y no se manda. Corregida, se guarda sola.
@@ -428,7 +429,7 @@ ok(/comprobante-prueba\.pdf/.test(await renglon('CABA').innerText()), 'el compro
 await p.reload({ waitUntil: 'networkidle' });
 await p.waitForSelector('tr.municipio', { timeout: 15000 });
 ok((await renglon('CABA').locator('input.municipio__cantidad').inputValue()) === '4', 'la cantidad persiste tras recargar');
-ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '2', 'pagada CABA, el menu cuenta solo las de Pilar');
+ok((await p.locator('a.menu__link[href="#/infracciones"] .globo').innerText().catch(() => '')) === '1', 'pagada CABA, el auto sigue contando por Pilar');
 
 // El listado general: un renglon por auto con sus municipios.
 await p.click('a.menu__link[href="#/infracciones"]');
@@ -447,6 +448,9 @@ await p.locator('.modal .carga__cantidad').first().fill('1');
 await p.click('.modal__pie button:has-text("Guardar")');
 await p.waitForSelector('tr.municipio:has(strong:text-is("Tigre"))', { timeout: 15000 });
 ok(/#\/infracciones\/AD111AA$/.test(p.url()), 'un dominio que no estaba cargado se da de alta con sus multas');
+await p.waitForFunction(() => document.querySelector('a.menu__link[href="#/infracciones"] .globo')?.textContent === '2', null, { timeout: 10000 })
+  .then(() => ok(true, 'con un segundo auto con multas, el menu dice 2'))
+  .catch(() => ok(false, 'con un segundo auto con multas, el menu dice 2'));
 
 // Quitar un municipio cargado por error.
 await p.goto(`${BASE}/#/infracciones/AB123CD`);

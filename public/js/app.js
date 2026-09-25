@@ -16,7 +16,8 @@ import { vistaInfracciones, vistaInfraccionesDominio } from './vistas/infraccion
 export const estado = {
   usuario: null,
   config: null,
-  infraccionesAbiertas: 0
+  // Autos con multas por resolver: es el numero del menu.
+  autosConInfracciones: 0
 };
 
 const RUTAS = [
@@ -80,7 +81,7 @@ function resolver(ruta) {
 // ---------- Estructura de la aplicacion ----------
 
 function cantidadDelGlobo(globo) {
-  if (globo === 'infracciones') return estado.infraccionesAbiertas;
+  if (globo === 'infracciones') return estado.autosConInfracciones;
   return 0;
 }
 
@@ -459,9 +460,9 @@ function abrirCambioPassword() {
 export async function refrescarPendientes() {
   try {
     const stats = await api.estadisticas();
-    estado.infraccionesAbiertas = stats.infracciones_abiertas || 0;
+    estado.autosConInfracciones = stats.autos_con_infracciones || 0;
   } catch {
-    estado.infraccionesAbiertas = 0;
+    estado.autosConInfracciones = 0;
   }
   actualizarGlobos();
 }

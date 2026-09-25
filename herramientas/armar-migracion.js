@@ -279,7 +279,7 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 6 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 7 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
   SELECT 5, 'Sugerencias del buscador',

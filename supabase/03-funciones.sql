@@ -56,9 +56,10 @@ $$;
 --   4 = infracciones: multas por auto, paginas de consulta y pagos
 --   5 = infracciones por municipio: cantidad por dominio, sin cargar una por una
 --   6 = infracciones: quien las resuelve y detalles
+--   7 = el menu cuenta autos con multas, no multas
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 6 $$;
+AS $$ SELECT 7 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
