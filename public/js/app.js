@@ -12,6 +12,7 @@ import { vistaDocumentacion } from './vistas/documentacion.js';
 import { vistaBuscador } from './vistas/buscador.js';
 import { vistaUsuarios } from './vistas/usuarios.js';
 import { vistaInfracciones, vistaInfraccionesDominio } from './vistas/infracciones.js';
+import { vistaStock } from './vistas/stock.js';
 
 export const estado = {
   usuario: null,
@@ -64,6 +65,15 @@ function resolver(ruta) {
   const dominio = ruta.match(/^buscador\/(.+)$/);
   if (dominio) {
     return { definicion: RUTAS.find((r) => r.ruta === 'buscador'), params: { dominio: decodeURIComponent(dominio[1]) } };
+  }
+
+  // Ficha de un auto en stock: se muestra dentro de Documentacion.
+  const enStock = ruta.match(/^stock\/(.+)$/);
+  if (enStock) {
+    return {
+      definicion: { ruta: 'documentacion', titulo: 'Auto en stock', vista: vistaStock },
+      params: { dominio: decodeURIComponent(enStock[1]) }
+    };
   }
 
   const multas = ruta.match(/^infracciones\/(.+)$/);

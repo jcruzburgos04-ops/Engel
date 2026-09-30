@@ -62,7 +62,7 @@ Al terminar, abajo en **Results** aparece una tabla con el resultado:
 | control | estado | detalle |
 | --- | --- | --- |
 | Tablas de datos | OK | 15 de 15 |
-| Funciones del sistema | OK | 12 de 12 |
+| Funciones del sistema | OK | 14 de 14 |
 | Reglas de acceso a los datos | OK | 29 reglas |
 | Deposito de documentacion | OK | creado |
 | Reglas de acceso a los archivos | OK | 4 de 4 |
@@ -191,11 +191,20 @@ suyo.
    queda aprobado automaticamente. Tambien se puede cambiar el estado a mano y
    dejar una observacion.
 4. **Documentacion pendiente**: la solapa Documentacion muestra todos los autos
-   con papeles faltantes, ordenados por la entrega mas cercana.
-5. **Buscar dominio**: se escribe la patente y aparece el auto, todas las
+   con papeles faltantes: primero los vendidos, ordenados por la entrega mas
+   cercana, y despues los que estan en stock.
+5. **Autos en stock (sin vender)**: en Documentacion, **"📦 Agregar autos al
+   stock"** da de alta uno o varios autos de una vez (dominio, marca, modelo,
+   año y si es propio o consigna; Enter en el año agrega otro renglon). Cada
+   uno queda con su checklist de 8 documentos, que se completa igual que el de
+   un auto vendido. **Cuando se vende**, al cargar la venta con ese dominio, su
+   checklist pasa a la venta con todo lo cargado: no se duplica ni se pierde
+   nada. Si una venta se borra o se quita una permuta, sus autos vuelven al
+   stock con sus papeles y archivos.
+6. **Buscar dominio**: se escribe la patente y aparece el auto, todas las
    operaciones donde figura (como vendido o como permuta) y el boton para bajar
    toda la documentacion en un ZIP.
-6. **Infracciones**: ver la seccion siguiente.
+7. **Infracciones**: ver la seccion siguiente.
 
 ### Infracciones
 

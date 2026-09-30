@@ -544,7 +544,76 @@ ok(psqlValor("SELECT count(*) FROM public.ventas WHERE cliente_nombre = 'NO SE D
   'los cambios pendientes de otro proyecto no se mandan a este');
 
 // ---------------------------------------------------------------------
-console.log('14. Si la base quedo vieja, la web lo dice');
+console.log('14. Autos en stock (sin vender)');
+await p.goto(`${BASE}/#/documentacion`, { waitUntil: 'networkidle' });
+await p.waitForSelector('button:has-text("Agregar autos al stock")', { timeout: 15000 });
+await p.click('button:has-text("Agregar autos al stock")');
+await p.waitForSelector('.modal .stock__fila');
+
+// Dos autos de una vez: Enter en el ano agrega otro renglon.
+await p.locator('.modal .stock__dominio').nth(0).fill('AK600FF');
+await p.locator('.modal .stock__marca').nth(0).fill('Renault');
+await p.locator('.modal .stock__modelo').nth(0).fill('Kwid');
+await p.locator('.modal .stock__anio').nth(0).fill('2020');
+await p.locator('.modal .stock__anio').nth(0).press('Enter');
+ok((await p.locator('.modal .stock__fila').count()) === 2, 'Enter en el año agrega otro renglon');
+await p.locator('.modal .stock__dominio').nth(1).fill('AL700GG');
+await p.locator('.modal .stock__marca').nth(1).fill('Peugeot');
+await p.locator('.modal .stock__tenencia').nth(1).selectOption('consigna');
+await p.click('.modal__pie button:has-text("Agregar al stock")');
+await p.waitForSelector('.modal .aviso--error', { timeout: 5000 });
+ok(/consignante/i.test(await p.locator('.modal .aviso--error').innerText()), 'un auto en consigna pide el consignante');
+await p.locator('.modal .stock__consignante').nth(1).fill('Ana Paz');
+await p.click('.modal__pie button:has-text("Agregar al stock")');
+await p.waitForSelector('.modal', { state: 'detached', timeout: 15000 });
+await p.waitForSelector('tr.fila--stock', { timeout: 15000 });
+const filasStock = await p.locator('tr.fila--stock').allInnerTexts();
+ok(filasStock.length === 2 && filasStock.some((t) => /AK 600 FF/.test(t) && /Kwid/.test(t)),
+  `los autos en stock aparecen en Documentacion (${filasStock.length})`);
+await captura(p, '30-documentacion-stock');
+
+// La ficha del auto en stock: checklist de 8 y datos que se guardan solos.
+await p.locator('tr.fila--stock', { hasText: 'AK 600 FF' }).locator('a:has-text("Cargar")').click();
+await p.waitForSelector('.doc-item', { timeout: 15000 });
+ok(/#\/stock\/AK600FF$/.test(p.url()), 'Cargar abre la ficha del auto en stock');
+ok((await p.locator('.doc-item').count()) === 8, 'el auto en stock tiene su checklist de 8 documentos');
+ok(await p.locator('.campo', { hasText: 'Consignante' }).isHidden(), 'un auto propio no muestra el consignante');
+ok(/En stock/.test(await p.locator('.tarjeta__titulo').last().innerText()), 'la tarjeta dice que esta en stock');
+
+const archivoStock = `${SALIDA}/titulo-stock.pdf`;
+fs.writeFileSync(archivoStock, '%PDF-1.4 titulo del auto en stock');
+await p.locator('.doc-item').first().locator('input[type=file]').setInputFiles(archivoStock);
+await p.waitForSelector('.doc-item .archivo', { timeout: 15000 });
+ok((await p.locator('.doc-item').first().locator('select').inputValue()) === 'aprobado', 'se le sube documentacion como a un auto vendido');
+
+const colorStock = p.locator('.campo', { hasText: 'Modelo' }).locator('input');
+await colorStock.fill('Kwid Intens');
+await colorStock.blur();
+await p.waitForSelector('.autoguardado__marca--ok', { timeout: 10000 });
+ok(psqlValor("SELECT modelo FROM public.vehiculos WHERE dominio = 'AK600FF'") === 'Kwid Intens', 'los datos del auto se guardan solos');
+await captura(p, '31-ficha-stock');
+
+// Se vende: la documentacion del stock pasa a la venta, con el archivo.
+await p.click('a[href="#/ventas/nueva"]');
+await p.waitForSelector('form');
+await p.fill('input.dominio-input', 'AK600FF');
+await p.locator('.campo', { hasText: 'Marca' }).first().locator('input').fill('Renault');
+await p.locator('.campo', { hasText: 'Modelo' }).first().locator('input').fill('Kwid Intens');
+await p.locator('.campo', { hasText: 'Comprador' }).first().locator('input').fill('Pedro Sosa');
+await p.locator('.campo', { hasText: 'Celular' }).first().locator('input').fill('11 4444 4444');
+await p.click('button:has-text("Guardar venta")');
+await p.waitForSelector('.doc-item', { timeout: 15000 });
+ok((await p.locator('.doc-item').count()) === 8, 'al venderlo, la venta tiene un solo checklist (no se duplico)');
+ok(/titulo-stock\.pdf/.test(await p.locator('.contenido').innerText()), 'lo cargado en stock aparece en la venta');
+ok(psqlValor("SELECT count(*) FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id WHERE v.dominio = 'AK600FF' AND d.venta_id IS NULL") === '0',
+  'vendido, ya no figura en stock');
+
+await p.click('a[href="#/panel"]');
+await p.waitForSelector('.indicador', { timeout: 15000 });
+ok(/1\s*Autos en stock/.test(await p.locator('.grilla--tarjetas').innerText()), 'el panel cuenta los autos en stock');
+
+// ---------------------------------------------------------------------
+console.log('15. Si la base quedo vieja, la web lo dice');
 // La web se publica sola y el SQL se corre a mano: hay que avisar en castellano
 // en vez de dejar que Postgres tire un error que nadie entiende.
 

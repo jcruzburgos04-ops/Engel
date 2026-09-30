@@ -91,7 +91,7 @@ async function perfilDe(usuario) {
 // sola (Netlify) pero el SQL se corre a mano, asi que pueden quedar
 // desfasadas: si la base es mas vieja, conviene decirlo con todas las letras
 // en vez de dejar que Postgres tire un error que nadie entiende.
-export const VERSION_ESQUEMA = 7;
+export const VERSION_ESQUEMA = 8;
 
 // Devuelve la version del esquema instalado, o null si no se pudo averiguar.
 // Una base vieja no tiene la funcion version_esquema(): eso cuenta como 1.
@@ -324,14 +324,45 @@ export const api = {
         .from('documentos')
         .update({ ...cambios, actualizado_por: usuario.id, actualizado_en: new Date().toISOString() })
         .eq('id', id)
-        .select('venta_id')
+        .select('venta_id, vehiculo_id')
         .single()
     );
-    return { documentacion: await api.documentacionDeVenta(fila.venta_id) };
+    return { documentacion: await documentacionDe(fila) };
   },
 
   async documentacionDeVenta(ventaId) {
     return (await rpc('documentacion_de_venta', { p_venta_id: Number(ventaId) })) || [];
+  },
+
+  async documentacionDeStock(vehiculoId) {
+    return (await rpc('documentacion_de_stock', { p_vehiculo_id: Number(vehiculoId) })) || [];
+  },
+
+  // ---------------------------------------------------------------------
+  // Autos en stock (sin vender)
+  // ---------------------------------------------------------------------
+
+  // autos: [{ dominio, marca, modelo, anio, tenencia, consignante_nombre }]
+  async agregarAStock(autos) {
+    return rpc('agregar_a_stock', { p_datos: { autos } });
+  },
+
+  async quitarDeStock(vehiculoId) {
+    const rutas = await rpc('quitar_de_stock', { p_vehiculo_id: Number(vehiculoId) });
+    await borrarDeDeposito(rutas);
+    return { ok: true };
+  },
+
+  async fichaStock(dominio) {
+    const ficha = await rpc('ficha_stock', { p_dominio: normalizar(dominio) });
+    if (!ficha) throw new ErrorApi(`No hay ningun auto cargado con el dominio ${normalizar(dominio)}.`, 'P0002');
+    return ficha;
+  },
+
+  // Guarda datos del auto (marca, modelo, ano…). Lo usa la cola de guardado.
+  async editarVehiculo(id, datos) {
+    await rpc('actualizar_vehiculo', { p_id: Number(id), p_datos: datos });
+    return { ok: true };
   },
 
   async subirArchivos(documentoId, archivos) {
@@ -381,7 +412,7 @@ export const api = {
       throw error;
     }
 
-    return { documentacion: await api.documentacionDeVenta(documento.venta_id) };
+    return { documentacion: await documentacionDe(documento) };
   },
 
   async borrarArchivo(archivoId) {
@@ -390,13 +421,13 @@ export const api = {
       await cliente.from('archivos').select('id, ruta, documento_id').eq('id', archivoId).single()
     );
     const documento = revisar(
-      await cliente.from('documentos').select('venta_id').eq('id', archivo.documento_id).single()
+      await cliente.from('documentos').select('venta_id, vehiculo_id').eq('id', archivo.documento_id).single()
     );
 
     revisar(await cliente.from('archivos').delete().eq('id', archivoId));
     await borrarDeDeposito([archivo.ruta]);
 
-    return { documentacion: await api.documentacionDeVenta(documento.venta_id) };
+    return { documentacion: await documentacionDe(documento) };
   },
 
   // Enlace temporal para bajar un archivo. Sin sesion no sirve de nada.
@@ -665,7 +696,16 @@ function nombreUnico(nombre) {
 }
 
 function carpetaDeDocumento(documento) {
+  if (!documento.venta_id) return `stock/auto-${documento.vehiculo_id}/${documento.tipo}`;
   return `venta-${documento.venta_id}/auto-${documento.vehiculo_id}/${documento.tipo}`;
+}
+
+// La documentacion actualizada del lugar donde esta el documento: su venta,
+// o el stock si el auto todavia no se vendio.
+function documentacionDe(documento) {
+  return documento.venta_id
+    ? api.documentacionDeVenta(documento.venta_id)
+    : api.documentacionDeStock(documento.vehiculo_id);
 }
 
 // Sube un archivo al deposito dentro de la carpeta indicada y devuelve la

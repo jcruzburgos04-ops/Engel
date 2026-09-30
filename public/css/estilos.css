@@ -33,6 +33,9 @@
 
 html, body { height: 100%; }
 
+/* Lo que esta oculto no se muestra, aunque otra regla le ponga display. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: var(--fuente);
@@ -509,7 +512,21 @@ td.acciones { text-align: right; white-space: nowrap; }
 .municipio--pagada td:first-child { border-left-color: var(--ok); }
 .municipio__preguntar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 
+/* Alta de autos en stock: un renglon por auto. */
+.modal.modal--ancho { max-width: 860px; }
+.stock__fila {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr) minmax(0, 1fr) 5.5rem 7rem auto;
+  gap: .5rem;
+  align-items: end;
+}
+.stock__fila label { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
+.stock__consignante { width: 100%; margin-top: .4rem; }
+.fila--stock td:first-child { border-left: 4px solid var(--alerta); }
+
 @media (max-width: 560px) {
+  .stock__fila { grid-template-columns: 1fr 1fr auto; }
+  .stock__fila .carga__rotulo { display: block !important; }
   .carga__fila { grid-template-columns: 1fr 5rem auto; }
   .carga__bloque { padding-bottom: .6rem; border-bottom: 1px solid var(--borde-suave); }
   .carga__fila .carga__rotulo { display: block !important; }

@@ -111,12 +111,14 @@ CREATE INDEX IF NOT EXISTS idx_permutas_vehiculo ON public.permutas (vehiculo_id
 -- Documentacion
 -- ---------------------------------------------------------------------
 
--- Checklist que se genera solo para el auto vendido y para cada permuta.
+-- Checklist que se genera solo para el auto vendido, para cada permuta y
+-- para los autos que entran en stock (sin venta todavia: venta_id vacio).
+-- Cuando un auto del stock se vende, su checklist pasa a la venta.
 CREATE TABLE IF NOT EXISTS public.documentos (
   id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  venta_id        bigint NOT NULL REFERENCES public.ventas (id) ON DELETE CASCADE,
+  venta_id        bigint REFERENCES public.ventas (id) ON DELETE CASCADE,
   vehiculo_id     bigint NOT NULL REFERENCES public.vehiculos (id),
-  rol             text NOT NULL DEFAULT 'venta' CHECK (rol IN ('venta', 'permuta')),
+  rol             text NOT NULL DEFAULT 'venta' CHECK (rol IN ('venta', 'permuta', 'stock')),
   tipo            text NOT NULL,
   -- Orden de trabajo: faltante -> pedido -> en proceso -> aprobado.
   estado          text NOT NULL DEFAULT 'faltante'
@@ -130,6 +132,44 @@ CREATE TABLE IF NOT EXISTS public.documentos (
 CREATE INDEX IF NOT EXISTS idx_documentos_venta ON public.documentos (venta_id);
 CREATE INDEX IF NOT EXISTS idx_documentos_vehiculo ON public.documentos (vehiculo_id);
 CREATE INDEX IF NOT EXISTS idx_documentos_estado ON public.documentos (estado);
+
+-- >>> stock
+-- Autos en stock: documentacion sin venta. Tambien pone al dia las bases
+-- instaladas antes, donde todo documento tenia que tener venta.
+ALTER TABLE public.documentos ALTER COLUMN venta_id DROP NOT NULL;
+
+DO $stock$
+DECLARE
+  restriccion text;
+BEGIN
+  FOR restriccion IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.documentos'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) ~* '\mrol\M'
+      AND pg_get_constraintdef(oid) !~* 'stock'
+  LOOP
+    EXECUTE format('ALTER TABLE public.documentos DROP CONSTRAINT %I', restriccion);
+  END LOOP;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.documentos'::regclass AND conname = 'documentos_rol_check') THEN
+    ALTER TABLE public.documentos ADD CONSTRAINT documentos_rol_check
+      CHECK (rol IN ('venta', 'permuta', 'stock'));
+  END IF;
+
+  -- Sin venta si y solo si es de stock.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.documentos'::regclass AND conname = 'documentos_stock_check') THEN
+    ALTER TABLE public.documentos ADD CONSTRAINT documentos_stock_check
+      CHECK ((venta_id IS NULL) = (rol = 'stock'));
+  END IF;
+END
+$stock$;
+
+-- Un solo checklist de stock por auto.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_documentos_stock
+  ON public.documentos (vehiculo_id, tipo) WHERE venta_id IS NULL;
+-- <<< stock
 
 -- Archivos subidos. El contenido vive en Storage; aca queda la referencia.
 CREATE TABLE IF NOT EXISTS public.archivos (

@@ -90,8 +90,9 @@ export async function vistaVenta({ id }) {
               type: 'button',
               onClick: async () => {
                 const ok = await confirmar(
-                  `Vas a borrar la venta #${venta.id} (${v.dominio}) con toda su documentacion cargada. ` +
-                    'Queda registrada en el historial, pero la ficha desaparece del listado.',
+                  `Vas a borrar la venta #${venta.id} (${v.dominio}). Queda registrada en el historial, pero la ficha ` +
+                    'desaparece del listado. Los autos de la venta vuelven al stock con la documentacion y los archivos ' +
+                    'que ya tenian cargados.',
                   { textoBoton: 'Borrar venta' }
                 );
                 if (!ok) return;
@@ -378,7 +379,8 @@ function bloquePermuta(venta, permuta, recargar) {
             type: 'button',
             onClick: async () => {
               const ok = await confirmar(
-                `Vas a desvincular la permuta ${permuta.dominio} de esta venta. Se borra tambien su checklist de documentacion.`,
+                `Vas a desvincular la permuta ${permuta.dominio} de esta venta. Si ya tenia documentacion cargada, ` +
+                  'vuelve al stock con sus archivos; si estaba sin tocar, se descarta.',
                 { textoBoton: 'Desvincular' }
               );
               if (!ok) return;

@@ -52,7 +52,7 @@ export async function descargarZipDominio(dominio, { alAvanzar } = {}) {
 
   for (const documento of conArchivos) {
     for (const archivo of documento.archivos) {
-      const carpeta = `venta-${documento.venta_id}/${documento.etiqueta}`;
+      const carpeta = documento.venta_id ? `venta-${documento.venta_id}/${documento.etiqueta}` : `stock/${documento.etiqueta}`;
       let nombre = `${carpeta}/${archivo.nombre_original}`;
       let sufijo = 2;
       while (usados.has(nombre)) nombre = `${carpeta}/(${sufijo++}) ${archivo.nombre_original}`;
@@ -150,9 +150,9 @@ export async function descargarDocumentacionCsv() {
     ['Venta', 'Dominio', 'Rol', 'Vehiculo', 'Cliente', 'Vendio', 'Entrega estimada',
      'Aprobados', 'Total', 'Faltantes', 'Pedidos', 'En proceso', 'Archivos'],
     filas.map((f) => [
-      f.venta_id, f.dominio, f.rol === 'permuta' ? 'Permuta' : 'Venta',
+      f.venta_id ?? '', f.dominio, { permuta: 'Permuta', stock: 'En stock' }[f.rol] || 'Venta',
       [f.marca, f.modelo, f.anio].filter(Boolean).join(' '),
-      f.cliente_nombre, f.vendedor_nombre, f.fecha_entrega_estimada || '',
+      f.cliente_nombre || '', f.vendedor_nombre || '', f.fecha_entrega_estimada || '',
       f.listos, f.total, f.faltantes, f.pedidos, f.en_proceso, f.archivos
     ])
   );

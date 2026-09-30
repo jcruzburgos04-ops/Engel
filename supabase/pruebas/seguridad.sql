@@ -98,6 +98,23 @@ INSERT INTO public.portales_infracciones (nombre, url) VALUES ('Tigre', 'https:/
 SELECT verificar('un vendedor puede agregar una pagina de consulta',
   (SELECT count(*) = 1 FROM public.portales_infracciones WHERE nombre = 'Tigre'));
 
+-- Stock: un vendedor puede agregar autos y sacarlos si no tienen archivos.
+SELECT verificar('un vendedor puede agregar autos al stock',
+  (SELECT jsonb_array_length(public.agregar_a_stock('{"autos":[{"dominio":"AJ500EE"}]}'::jsonb) -> 'agregados') = 1));
+SELECT verificar('un vendedor ve el checklist de stock',
+  (SELECT count(*) = 8 FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+    WHERE v.dominio = 'AJ500EE'));
+SELECT public.quitar_de_stock((SELECT id FROM public.vehiculos WHERE dominio = 'AJ500EE'));
+SELECT verificar('un vendedor puede sacar del stock un auto sin archivos',
+  (SELECT count(*) = 0 FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+    WHERE v.dominio = 'AJ500EE'));
+-- Las reglas no dejan borrar documentos a mano: la base ignora el pedido.
+DELETE FROM public.documentos WHERE venta_id IS NULL;
+SELECT verificar('nadie borra documentos a mano, solo desde las funciones',
+  (SELECT count(*) > 0 FROM public.documentos WHERE venta_id IS NULL));
+SELECT debe_fallar('nadie puede llamar directamente a devolver_a_stock',
+  $$ SELECT public.devolver_a_stock(1, 1) $$, 'permission denied');
+
 \echo ''
 \echo '== Cosas que solo puede hacer un administrador =='
 
@@ -110,6 +127,9 @@ SELECT debe_fallar('nadie puede editar el registro de consultas',
 
 SELECT debe_fallar('un vendedor no puede borrar una venta',
   $$ SELECT public.borrar_venta(1) $$, 'administrador');
+
+SELECT debe_fallar('un vendedor no saca del stock un auto con archivos cargados',
+  $$ SELECT public.quitar_de_stock((SELECT id FROM public.vehiculos WHERE dominio = 'AE100AA')) $$, 'administrador');
 
 SELECT verificar('un vendedor no ve las invitaciones', visibles('invitaciones') = 0);
 

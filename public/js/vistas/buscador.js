@@ -76,7 +76,7 @@ function tablaOperaciones(ventas) {
   );
 }
 
-function tablaDocumentos(documentos) {
+function tablaDocumentos(documentos, dominio) {
   if (!documentos.length) return vacio('Este dominio todavia no tiene checklist de documentacion.', '📁');
 
   return h(
@@ -99,7 +99,9 @@ function tablaDocumentos(documentos) {
               'tr',
               {},
               h('td', {}, h('strong', {}, doc.etiqueta)),
-              h('td', {}, h('a', { href: `#/ventas/${doc.venta_id}` }, `#${doc.venta_id}`),
+              h('td', {}, doc.venta_id
+                ? h('a', { href: `#/ventas/${doc.venta_id}` }, `#${doc.venta_id}`)
+                : h('a', { href: `#/stock/${dominio}` }, '📦 En stock'),
                 doc.rol === 'permuta' ? h('div', { class: 'mini' }, 'como permuta') : null),
               h('td', {}, h('span', { class: `etiqueta ${info.clase}` }, info.texto)),
               h(
@@ -160,7 +162,7 @@ export async function vistaBuscador({ dominio } = {}) {
       vaciar(resultados).append(
         fichaVehiculo(datos.vehiculo),
         datos.ventas.length ? tablaOperaciones(datos.ventas) : vacio('Este dominio no esta vinculado a ninguna operacion.', '🧾'),
-        tablaDocumentos(datos.documentos)
+        tablaDocumentos(datos.documentos, datos.vehiculo.dominio)
       );
     } catch (error) {
       vaciar(resultados).append(

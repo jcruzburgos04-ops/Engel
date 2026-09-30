@@ -529,3 +529,120 @@ SELECT verificar('las estadisticas cuentan los autos con multas por resolver',
 SELECT verificar('la copia completa incluye las infracciones',
   (SELECT jsonb_array_length(public.exportar_todo() -> 'infracciones') = 4
       AND public.exportar_todo() ? 'portales_infracciones'));
+
+\echo ''
+\echo '== Autos en stock (sin vender) =='
+
+SET request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+SELECT verificar('se agregan varios autos al stock de una vez',
+  (SELECT jsonb_array_length(r -> 'agregados') = 2
+     FROM public.agregar_a_stock('{"autos":[
+       {"dominio":"ae100aa","marca":"Ford","modelo":"Ka","anio":2018},
+       {"dominio":"AF200BB","marca":"Fiat","modelo":"Cronos","tenencia":"consigna","consignante_nombre":"Ana Paz"}
+     ]}'::jsonb) r));
+
+SELECT verificar('cada auto en stock tiene su checklist de 8 documentos, sin venta',
+  (SELECT count(*) = 16 AND bool_and(d.venta_id IS NULL AND d.rol = 'stock')
+     FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+    WHERE v.dominio IN ('AE100AA', 'AF200BB')));
+
+SELECT verificar('agregar de nuevo un auto que ya esta en stock no lo duplica',
+  (SELECT jsonb_array_length(r -> 'ya_estaban') = 1 AND jsonb_array_length(r -> 'agregados') = 0
+     FROM public.agregar_a_stock('{"autos":[{"dominio":"AE100AA"}]}'::jsonb) r)
+  AND (SELECT count(*) = 8 FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+        WHERE v.dominio = 'AE100AA'));
+
+SELECT debe_fallar('un auto de una venta abierta no se agrega al stock',
+  $$ SELECT public.agregar_a_stock('{"autos":[{"dominio":"AB123CD"}]}'::jsonb) $$, 'sigue abierta');
+
+SELECT debe_fallar('un auto en consigna necesita el consignante',
+  $$ SELECT public.agregar_a_stock('{"autos":[{"dominio":"AG300CC","tenencia":"consigna"}]}'::jsonb) $$, 'consignante');
+
+SELECT debe_fallar('un dominio invalido no entra al stock',
+  $$ SELECT public.agregar_a_stock('{"autos":[{"dominio":"XX1"}]}'::jsonb) $$, 'formato valido');
+
+SELECT verificar('el panel de documentacion muestra los autos en stock',
+  (SELECT count(*) = 2 FROM jsonb_array_elements(public.panel_documentacion(true, '')) f
+    WHERE f ->> 'rol' = 'stock')
+  AND (SELECT count(*) = 1 FROM jsonb_array_elements(public.panel_documentacion(true, 'cronos')) f));
+
+SELECT verificar('las estadisticas cuentan los autos en stock',
+  (SELECT (public.estadisticas() ->> 'autos_en_stock')::int = 2));
+
+-- Se carga documentacion mientras esta en stock.
+UPDATE public.documentos d SET estado = 'aprobado', observaciones = 'Original en la caja'
+FROM public.vehiculos v
+WHERE v.id = d.vehiculo_id AND v.dominio = 'AE100AA' AND d.tipo = 'titulo' AND d.venta_id IS NULL;
+
+INSERT INTO public.archivos (documento_id, nombre_original, ruta, subido_por)
+SELECT d.id, 'titulo-ka.pdf', 'stock/auto-x/titulo/titulo-ka.pdf', '11111111-1111-1111-1111-111111111111'
+FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+WHERE v.dominio = 'AE100AA' AND d.tipo = 'titulo';
+
+SELECT verificar('la ficha del stock trae el checklist con lo cargado',
+  (SELECT (f ->> 'en_stock')::boolean AND jsonb_array_length(f -> 'documentacion') = 1
+      AND (f -> 'documentacion' -> 0 ->> 'listos')::int = 1
+      AND (f -> 'documentacion' -> 0 ->> 'rol') = 'stock'
+     FROM public.ficha_stock('AE100AA') f));
+
+SELECT verificar('la ficha de un auto en venta abierta dice en que venta esta',
+  (SELECT f ->> 'venta_abierta' IS NOT NULL AND NOT (f ->> 'en_stock')::boolean
+     FROM public.ficha_stock('AB123CD') f));
+
+-- Se vende: el checklist del stock pasa a la venta, con lo que ya tenia.
+SELECT public.crear_venta(jsonb_build_object(
+  'fecha_venta', '2026-09-28',
+  'vendedor_id', '22222222-2222-2222-2222-222222222222',
+  'cliente_nombre', 'Pedro Sosa',
+  'vehiculo', jsonb_build_object('dominio', 'AE100AA')
+)) AS venta_stock \gset
+
+SELECT verificar('al venderse, el checklist del stock pasa a la venta (no se duplica)',
+  (SELECT count(*) = 8 FROM public.documentos WHERE venta_id = :venta_stock)
+  AND (SELECT count(*) = 0 FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+        WHERE v.dominio = 'AE100AA' AND d.venta_id IS NULL));
+
+SELECT verificar('lo cargado en stock sigue en la venta: estado, observacion y archivo',
+  (SELECT d.estado = 'aprobado' AND d.observaciones = 'Original en la caja' AND d.rol = 'venta'
+          AND EXISTS (SELECT 1 FROM public.archivos a WHERE a.documento_id = d.id)
+     FROM public.documentos d WHERE d.venta_id = :venta_stock AND d.tipo = 'titulo'));
+
+SELECT verificar('vendido, ya no figura en stock',
+  (SELECT (public.estadisticas() ->> 'autos_en_stock')::int = 1));
+
+-- Si la venta se borra, el auto vuelve al stock con todo lo cargado.
+SELECT verificar('borrar la venta no borra ningun archivo',
+  (SELECT cardinality(public.borrar_venta(:venta_stock)) = 0));
+
+SELECT verificar('el auto de la venta borrada vuelve al stock con su documentacion',
+  (SELECT count(*) = 8 AND bool_and(d.rol = 'stock')
+          AND count(*) FILTER (WHERE d.estado = 'aprobado') = 1
+     FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+    WHERE v.dominio = 'AE100AA' AND d.venta_id IS NULL)
+  AND (SELECT count(*) = 1 FROM public.archivos WHERE nombre_original = 'titulo-ka.pdf'));
+
+-- Una permuta con papeles cargados, al quitarla, tambien vuelve al stock.
+SELECT public.agregar_permuta(:venta_id, '{"dominio":"AH400DD","marca":"VW","modelo":"Gol"}'::jsonb);
+UPDATE public.documentos d SET estado = 'pedido'
+FROM public.vehiculos v WHERE v.id = d.vehiculo_id AND v.dominio = 'AH400DD' AND d.tipo = 'vtv';
+SELECT public.quitar_permuta((SELECT p.id FROM public.permutas p JOIN public.vehiculos v ON v.id = p.vehiculo_id
+                               WHERE v.dominio = 'AH400DD'));
+SELECT verificar('una permuta quitada con papeles cargados vuelve al stock',
+  (SELECT count(*) = 8 AND count(*) FILTER (WHERE d.estado = 'pedido') = 1
+     FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+    WHERE v.dominio = 'AH400DD' AND d.venta_id IS NULL));
+
+-- Sacar un auto del stock.
+SELECT public.quitar_de_stock((SELECT id FROM public.vehiculos WHERE dominio = 'AF200BB'));
+SELECT verificar('se puede sacar un auto del stock',
+  (SELECT count(*) = 0 FROM public.documentos d JOIN public.vehiculos v ON v.id = d.vehiculo_id
+    WHERE v.dominio = 'AF200BB'));
+
+SELECT verificar('al sacarlo queda una copia completa en el historial',
+  (SELECT count(*) = 1 FROM public.auditoria
+    WHERE entidad = 'stock' AND accion = 'borrar' AND entidad_id = 'AF200BB'
+      AND jsonb_array_length(antes -> 'documentos') = 8));
+
+SELECT debe_fallar('no se puede sacar del stock un auto que no esta',
+  $$ SELECT public.quitar_de_stock((SELECT id FROM public.vehiculos WHERE dominio = 'AF200BB')) $$, 'no esta en stock');

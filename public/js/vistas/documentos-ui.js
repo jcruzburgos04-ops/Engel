@@ -182,7 +182,9 @@ export function tarjetaDocumentacion(grupo, alActualizar) {
       h('span', {}, grupo.descripcion),
       grupo.rol === 'permuta'
         ? h('span', { class: 'etiqueta etiqueta--info' }, '🔄 Permuta')
-        : h('span', { class: 'etiqueta' }, 'Auto vendido'),
+        : grupo.rol === 'stock'
+          ? h('span', { class: 'etiqueta etiqueta--aviso' }, '📦 En stock')
+          : h('span', { class: 'etiqueta' }, 'Auto vendido'),
       completo ? h('span', { class: 'etiqueta etiqueta--ok' }, 'Documentacion completa') : null,
       h(
         'span',

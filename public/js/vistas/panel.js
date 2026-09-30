@@ -57,7 +57,8 @@ export async function vistaPanel() {
       indicador(stats.entregadas, 'Entregadas'),
       indicador(stats.documentos_pendientes, 'Documentos pendientes', stats.documentos_pendientes ? 'indicador--aviso' : ''),
       indicador(stats.entregas_vencidas, 'Entregas vencidas', stats.entregas_vencidas ? 'indicador--alerta' : ''),
-      indicador(stats.infracciones_abiertas, 'Multas por resolver', stats.infracciones_abiertas ? 'indicador--alerta' : '')
+      indicador(stats.infracciones_abiertas, 'Multas por resolver', stats.infracciones_abiertas ? 'indicador--alerta' : ''),
+      indicador(stats.autos_en_stock, 'Autos en stock')
     )
   );
 

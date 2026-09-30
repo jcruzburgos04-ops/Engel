@@ -28,7 +28,9 @@ AS $$ SELECT COALESCE(array_position(public.tipos_documento(), p_tipo), 99) $$;
 -- Documentacion de una venta, agrupada por auto
 -- ---------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION public.documentacion_de_venta(p_venta_id bigint)
+-- Con p_venta_id: la documentacion de esa venta. Sin venta: el checklist de
+-- stock del auto p_vehiculo_id.
+CREATE OR REPLACE FUNCTION public.documentacion_grupos(p_venta_id bigint, p_vehiculo_id bigint)
 RETURNS jsonb
 LANGUAGE sql STABLE
 AS $$
@@ -79,9 +81,43 @@ AS $$
     FROM public.documentos d
     JOIN public.vehiculos v ON v.id = d.vehiculo_id
     LEFT JOIN public.perfiles pa ON pa.id = d.actualizado_por
-    WHERE d.venta_id = p_venta_id
+    WHERE (p_venta_id IS NOT NULL AND d.venta_id = p_venta_id)
+       OR (p_venta_id IS NULL AND d.venta_id IS NULL AND d.vehiculo_id = p_vehiculo_id)
     GROUP BY v.id
   ) AS grupos;
+$$;
+
+CREATE OR REPLACE FUNCTION public.documentacion_de_venta(p_venta_id bigint)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$ SELECT public.documentacion_grupos(p_venta_id, NULL) $$;
+
+CREATE OR REPLACE FUNCTION public.documentacion_de_stock(p_vehiculo_id bigint)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$ SELECT public.documentacion_grupos(NULL, p_vehiculo_id) $$;
+
+-- Ficha de un auto en stock: sus datos y su checklist. Si no esta en stock,
+-- dice en que venta abierta esta (su documentacion se carga ahi).
+CREATE OR REPLACE FUNCTION public.ficha_stock(p_dominio text)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'vehiculo', to_jsonb(v),
+    'en_stock', EXISTS (SELECT 1 FROM public.documentos d WHERE d.vehiculo_id = v.id AND d.venta_id IS NULL),
+    'documentacion', public.documentacion_de_stock(v.id),
+    'venta_abierta', (
+      SELECT min(x.venta_id) FROM (
+        SELECT ve.id AS venta_id FROM public.ventas ve
+        WHERE ve.vehiculo_id = v.id AND ve.estado NOT IN ('cancelado', 'entregado')
+        UNION ALL
+        SELECT pe.venta_id FROM public.permutas pe JOIN public.ventas ve ON ve.id = pe.venta_id
+        WHERE pe.vehiculo_id = v.id AND ve.estado NOT IN ('cancelado', 'entregado')
+      ) AS x)
+  )
+  FROM public.vehiculos v
+  WHERE v.dominio = public.normalizar_dominio(p_dominio);
 $$;
 
 -- ---------------------------------------------------------------------
@@ -335,7 +371,7 @@ CREATE OR REPLACE FUNCTION public.panel_documentacion(
 RETURNS jsonb
 LANGUAGE sql STABLE
 AS $$
-  SELECT COALESCE(jsonb_agg(fila ORDER BY orden_nulo, entrega, venta_id DESC), '[]'::jsonb)
+  SELECT COALESCE(jsonb_agg(fila ORDER BY orden_nulo, entrega, venta_id DESC, fila ->> 'dominio'), '[]'::jsonb)
   FROM (
     SELECT
       jsonb_build_object(
@@ -368,6 +404,35 @@ AS $$
             OR min(ve.dominio) LIKE '%' || public.normalizar_dominio(p_q) || '%'
             OR concat_ws(' ', min(ve.marca), min(ve.modelo), min(ve.descripcion), min(v.cliente_nombre))
                ILIKE '%' || trim(p_q) || '%')
+
+    UNION ALL
+
+    -- Autos en stock (sin venta): van despues de los vendidos.
+    SELECT
+      jsonb_build_object(
+        'venta_id', NULL, 'vehiculo_id', d.vehiculo_id, 'rol', 'stock',
+        'dominio', min(ve.dominio), 'marca', min(ve.marca), 'modelo', min(ve.modelo),
+        'anio', min(ve.anio), 'tenencia', min(ve.tenencia), 'descripcion', min(ve.descripcion),
+        'total', count(*),
+        'listos', count(*) FILTER (WHERE d.estado = 'aprobado'),
+        'faltantes', count(*) FILTER (WHERE d.estado = 'faltante'),
+        'pedidos', count(*) FILTER (WHERE d.estado = 'pedido'),
+        'en_proceso', count(*) FILTER (WHERE d.estado = 'en_proceso'),
+        'archivos', (SELECT count(*) FROM public.archivos a
+                       JOIN public.documentos d2 ON d2.id = a.documento_id
+                      WHERE d2.venta_id IS NULL AND d2.vehiculo_id = d.vehiculo_id)
+      ),
+      NULL,
+      NULL,
+      2
+    FROM public.documentos d
+    JOIN public.vehiculos ve ON ve.id = d.vehiculo_id
+    WHERE d.venta_id IS NULL
+    GROUP BY d.vehiculo_id
+    HAVING (NOT p_solo_pendientes OR count(*) FILTER (WHERE d.estado = 'aprobado') < count(*))
+       AND (COALESCE(trim(p_q), '') = ''
+            OR min(ve.dominio) LIKE '%' || public.normalizar_dominio(p_q) || '%'
+            OR concat_ws(' ', min(ve.marca), min(ve.modelo), min(ve.descripcion)) ILIKE '%' || trim(p_q) || '%')
   ) AS filas;
 $$;
 
@@ -396,6 +461,8 @@ AS $$
     -- Multas que todavia hay que pagar o resolver.
     'infracciones_abiertas', (SELECT COALESCE(sum(cantidad), 0) FROM public.infracciones
                                 WHERE estado IN ('impaga', 'en_gestion')),
+    -- Autos en stock con su checklist de documentacion.
+    'autos_en_stock', (SELECT count(DISTINCT vehiculo_id) FROM public.documentos WHERE venta_id IS NULL),
     -- Autos que tienen al menos una multa por resolver (el numero del menu).
     'autos_con_infracciones', (SELECT count(DISTINCT vehiculo_id) FROM public.infracciones
                                  WHERE estado IN ('impaga', 'en_gestion')),
@@ -588,6 +655,8 @@ BEGIN
     'guardar_infracciones(jsonb)', 'registrar_consulta_infracciones(text, bigint, text)',
     'panel_documentacion(boolean, text)', 'estadisticas()',
     'historial_venta(bigint)', 'exportar_todo()', 'documentacion_de_venta(bigint)',
+    'documentacion_grupos(bigint, bigint)', 'documentacion_de_stock(bigint)', 'ficha_stock(text)',
+    'agregar_a_stock(jsonb)', 'quitar_de_stock(bigint)',
     'guardar_vehiculo(jsonb)', 'actualizar_vehiculo(bigint, jsonb)',
     'generar_checklist(bigint, bigint, text)', 'normalizar_dominio(text)', 'dominio_valido(text)',
     'etiqueta_documento(text)', 'es_miembro()', 'es_admin()'
@@ -601,3 +670,7 @@ END $$;
 -- La version del esquema la puede consultar cualquiera: es solo un numero y
 -- sirve para avisar en la pantalla de ingreso si la base quedo atrasada.
 GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
+
+-- devolver_a_stock solo la usan borrar_venta y quitar_permuta (que ya revisan
+-- los permisos): nadie la puede llamar directamente.
+REVOKE ALL ON FUNCTION public.devolver_a_stock(bigint, bigint) FROM PUBLIC, anon, authenticated;

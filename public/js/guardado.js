@@ -15,6 +15,7 @@ const OPERACIONES = {
   editar_venta: ({ id, datos }) => api.editarVenta(id, datos),
   editar_documento: ({ id, cambios }) => api.editarDocumento(id, cambios),
   editar_infraccion: ({ id, cambios }) => api.editarInfraccion(id, cambios),
+  editar_vehiculo: ({ id, datos }) => api.editarVehiculo(id, datos),
   guardar_borrador: ({ clave, contenido }) => api.guardarBorrador(clave, contenido)
 };
 

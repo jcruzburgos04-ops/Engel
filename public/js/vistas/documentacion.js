@@ -3,15 +3,42 @@ import {
   h, vaciar, fecha, diasHasta, avisar, etiquetaDominio, etiquetaTenencia, barraProgreso,
   vacio, campo, campoCasilla, recordar, recordado
 } from '../util.js';
-import { encabezado } from '../app.js';
+import { encabezado, navegar } from '../app.js';
 import { descargarDocumentacionCsv } from '../descargas.js';
 import { botonZip } from './documentos-ui.js';
+import { abrirAltaStock } from './stock.js';
 
 function descripcion(fila) {
   return [fila.marca, fila.modelo, fila.anio].filter(Boolean).join(' ') || fila.descripcion || 'Sin descripcion';
 }
 
+// Auto en stock (sin venta): no tiene cliente, vendedor ni entrega.
+function filaStock(fila) {
+  const faltan = fila.total - fila.listos;
+  const enlace = `#/stock/${fila.dominio}`;
+  return h(
+    'tr',
+    { class: 'fila--stock' },
+    h('td', {},
+      h('a', { href: enlace }, etiquetaDominio(fila.dominio)),
+      h('div', { style: 'margin-top:.25rem' }, h('span', { class: 'etiqueta etiqueta--aviso' }, '📦 En stock'))),
+    h('td', {}, descripcion(fila), h('div', { class: 'mini' }, fila.tenencia === 'consigna' ? 'Consigna' : 'Propio')),
+    h('td', { class: 'tenue' }, '—'),
+    h('td', { class: 'tenue' }, '—'),
+    h('td', {}, barraProgreso(fila.listos, fila.total),
+      faltan > 0 ? h('div', { class: 'mini' }, `faltan ${faltan}`) : h('div', { class: 'mini' }, 'completo')),
+    h('td', { class: 'numero' }, `${fila.archivos} archivo${fila.archivos === 1 ? '' : 's'}`),
+    h(
+      'td',
+      { class: 'acciones' },
+      h('a', { class: 'boton boton--chico', href: enlace }, 'Cargar'),
+      fila.archivos ? (() => { const b = botonZip(fila.dominio, 'ZIP'); b.style.marginLeft = '.3rem'; return b; })() : null
+    )
+  );
+}
+
 function filaPanel(fila) {
+  if (fila.rol === 'stock') return filaStock(fila);
   const dias = diasHasta(fila.fecha_entrega_estimada);
   let entrega = h('span', { class: 'tenue' }, 'Sin fecha');
   if (fila.fecha_entrega_estimada) {
@@ -68,9 +95,13 @@ export async function vistaDocumentacion() {
       const titulo = h(
         'div',
         { class: 'tarjeta__titulo' },
-        verTodos.checked
-          ? `${filas.length} auto(s) en operaciones activas`
-          : `${filas.length} auto(s) con documentacion pendiente`,
+        (() => {
+          const enStock = filas.filter((f) => f.rol === 'stock').length;
+          const base = verTodos.checked
+            ? `${filas.length} auto(s) en operaciones activas y en stock`
+            : `${filas.length} auto(s) con documentacion pendiente`;
+          return enStock ? `${base} · ${enStock} en stock` : base;
+        })(),
         h('span', { class: 'derecha' }, h(
           'button',
           {
@@ -95,7 +126,7 @@ export async function vistaDocumentacion() {
       if (!filas.length) {
         vaciar(resultados).append(
           titulo,
-          vacio(verTodos.checked ? 'No hay operaciones activas.' : '¡Toda la documentacion esta al dia!', '✅')
+          vacio(verTodos.checked ? 'No hay operaciones activas ni autos en stock.' : '¡Toda la documentacion esta al dia!', '✅')
         );
         return;
       }
@@ -147,7 +178,15 @@ export async function vistaDocumentacion() {
     {},
     encabezado(
       'Documentacion',
-      'Autos con papeles pendientes, ordenados por fecha de entrega mas cercana'
+      'Autos vendidos (por fecha de entrega mas cercana) y autos en stock',
+      h('button', {
+        class: 'boton boton--primario',
+        type: 'button',
+        onClick: () => abrirAltaStock({
+          // Si se agrego uno solo, se va directo a su ficha para cargarle los papeles.
+          alGuardar: (unico) => (unico ? navegar(`stock/${unico}`) : cargar())
+        })
+      }, '📦 Agregar autos al stock')
     ),
     filtros,
     resultados

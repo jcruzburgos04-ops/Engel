@@ -12,6 +12,7 @@
 --   5. Infracciones: cuantas multas tiene cada auto en cada municipio,
 --      paginas de consulta y seguimiento del pago.
 --   6. Infracciones: quien las resuelve y detalles.
+--   7. Autos en stock: documentacion de autos que todavia no se vendieron.
 --
 -- Se puede correr aunque ya hayas aplicado alguno: no repite nada.
 -- Al final aparece una tabla con el resultado.
@@ -187,6 +188,42 @@ CREATE TABLE IF NOT EXISTS public.consultas_infracciones (
 CREATE INDEX IF NOT EXISTS idx_consultas_infracciones
   ON public.consultas_infracciones (dominio, portal_id, consultado_en DESC);
 
+-- Autos en stock: documentacion sin venta. Tambien pone al dia las bases
+-- instaladas antes, donde todo documento tenia que tener venta.
+ALTER TABLE public.documentos ALTER COLUMN venta_id DROP NOT NULL;
+
+DO $stock$
+DECLARE
+  restriccion text;
+BEGIN
+  FOR restriccion IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.documentos'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) ~* '\mrol\M'
+      AND pg_get_constraintdef(oid) !~* 'stock'
+  LOOP
+    EXECUTE format('ALTER TABLE public.documentos DROP CONSTRAINT %I', restriccion);
+  END LOOP;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.documentos'::regclass AND conname = 'documentos_rol_check') THEN
+    ALTER TABLE public.documentos ADD CONSTRAINT documentos_rol_check
+      CHECK (rol IN ('venta', 'permuta', 'stock'));
+  END IF;
+
+  -- Sin venta si y solo si es de stock.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.documentos'::regclass AND conname = 'documentos_stock_check') THEN
+    ALTER TABLE public.documentos ADD CONSTRAINT documentos_stock_check
+      CHECK ((venta_id IS NULL) = (rol = 'stock'));
+  END IF;
+END
+$stock$;
+
+-- Un solo checklist de stock por auto.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_documentos_stock
+  ON public.documentos (vehiculo_id, tipo) WHERE venta_id IS NULL;
+
 -- ---------------------------------------------------------------------
 -- 1. Las funciones
 -- ---------------------------------------------------------------------
@@ -196,7 +233,7 @@ CREATE INDEX IF NOT EXISTS idx_consultas_infracciones
 
 CREATE OR REPLACE FUNCTION public.version_esquema()
 RETURNS integer LANGUAGE sql IMMUTABLE
-AS $$ SELECT 7 $$;
+AS $$ SELECT 8 $$;
 
 -- Estados de un documento, en el orden en que avanza el tramite.
 CREATE OR REPLACE FUNCTION public.estados_documento()
@@ -468,7 +505,240 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.documentacion_de_venta(p_venta_id bigint)
+CREATE OR REPLACE FUNCTION public.generar_checklist(p_venta_id bigint, p_vehiculo_id bigint, p_rol text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF p_venta_id IS NULL THEN
+    INSERT INTO public.documentos (venta_id, vehiculo_id, rol, tipo)
+    SELECT NULL, p_vehiculo_id, 'stock', tipo
+    FROM unnest(public.tipos_documento()) AS tipo
+    ON CONFLICT (vehiculo_id, tipo) WHERE venta_id IS NULL DO NOTHING;
+    RETURN;
+  END IF;
+
+  UPDATE public.documentos d
+  SET venta_id = p_venta_id, rol = p_rol
+  WHERE d.vehiculo_id = p_vehiculo_id AND d.venta_id IS NULL
+    AND NOT EXISTS (SELECT 1 FROM public.documentos o
+                     WHERE o.venta_id = p_venta_id AND o.vehiculo_id = p_vehiculo_id AND o.tipo = d.tipo);
+
+  INSERT INTO public.documentos (venta_id, vehiculo_id, rol, tipo)
+  SELECT p_venta_id, p_vehiculo_id, p_rol, tipo
+  FROM unnest(public.tipos_documento()) AS tipo
+  ON CONFLICT (venta_id, vehiculo_id, tipo) DO NOTHING;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.devolver_a_stock(p_venta_id bigint, p_vehiculo_id bigint)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  doc record;
+  v_stock bigint;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.documentos d
+    WHERE d.venta_id = p_venta_id AND d.vehiculo_id = p_vehiculo_id
+      AND (d.estado <> 'faltante' OR d.observaciones <> ''
+           OR EXISTS (SELECT 1 FROM public.archivos a WHERE a.documento_id = d.id))
+  ) THEN
+    DELETE FROM public.documentos WHERE venta_id = p_venta_id AND vehiculo_id = p_vehiculo_id;
+    RETURN;
+  END IF;
+
+  FOR doc IN
+    SELECT * FROM public.documentos WHERE venta_id = p_venta_id AND vehiculo_id = p_vehiculo_id
+  LOOP
+    SELECT id INTO v_stock FROM public.documentos
+    WHERE vehiculo_id = p_vehiculo_id AND venta_id IS NULL AND tipo = doc.tipo;
+
+    IF v_stock IS NULL THEN
+      UPDATE public.documentos SET venta_id = NULL, rol = 'stock' WHERE id = doc.id;
+    ELSE
+      UPDATE public.archivos SET documento_id = v_stock WHERE documento_id = doc.id;
+      UPDATE public.documentos s SET
+        estado = CASE WHEN s.estado = 'faltante' THEN doc.estado ELSE s.estado END,
+        observaciones = concat_ws(' | ', NULLIF(s.observaciones, ''), NULLIF(doc.observaciones, ''))
+      WHERE s.id = v_stock;
+      DELETE FROM public.documentos WHERE id = doc.id;
+    END IF;
+  END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.quitar_permuta(p_permuta_id bigint)
+RETURNS text[]
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_venta_id bigint;
+  v_vehiculo_id bigint;
+BEGIN
+  PERFORM public.exigir_miembro();
+
+  SELECT venta_id, vehiculo_id INTO v_venta_id, v_vehiculo_id
+  FROM public.permutas WHERE id = p_permuta_id;
+
+  IF v_venta_id IS NULL THEN
+    RAISE EXCEPTION 'No se encontro la permuta.' USING ERRCODE = 'P0002';
+  END IF;
+
+  PERFORM public.devolver_a_stock(v_venta_id, v_vehiculo_id);
+  DELETE FROM public.permutas WHERE id = p_permuta_id;
+
+  RETURN ARRAY[]::text[];
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.borrar_venta(p_id bigint)
+RETURNS text[]
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_copia jsonb;
+  v_vehiculo bigint;
+BEGIN
+  IF NOT public.es_admin() THEN
+    RAISE EXCEPTION 'Solo un administrador puede borrar una venta.' USING ERRCODE = '42501';
+  END IF;
+
+  -- Copia completa de la operacion, para poder reconstruirla si hizo falta.
+  SELECT jsonb_build_object(
+    'venta', to_jsonb(v),
+    'vehiculo', to_jsonb(ve),
+    'permutas', COALESCE((SELECT jsonb_agg(to_jsonb(p)) FROM public.permutas p WHERE p.venta_id = v.id), '[]'::jsonb),
+    'documentos', COALESCE((SELECT jsonb_agg(to_jsonb(d)) FROM public.documentos d WHERE d.venta_id = v.id), '[]'::jsonb),
+    'notas', COALESCE((SELECT jsonb_agg(to_jsonb(n)) FROM public.notas n WHERE n.venta_id = v.id), '[]'::jsonb)
+  ) INTO v_copia
+  FROM public.ventas v JOIN public.vehiculos ve ON ve.id = v.vehiculo_id
+  WHERE v.id = p_id;
+
+  IF v_copia IS NULL THEN
+    RAISE EXCEPTION 'No se encontro la venta.' USING ERRCODE = 'P0002';
+  END IF;
+
+  FOR v_vehiculo IN SELECT DISTINCT vehiculo_id FROM public.documentos WHERE venta_id = p_id LOOP
+    PERFORM public.devolver_a_stock(p_id, v_vehiculo);
+  END LOOP;
+
+  DELETE FROM public.ventas WHERE id = p_id;
+
+  PERFORM public.anotar('venta', p_id::text, p_id, 'borrar',
+    format('Se borro la venta #%s de %s', p_id, v_copia -> 'vehiculo' ->> 'dominio'),
+    v_copia, NULL);
+
+  RETURN ARRAY[]::text[];
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.agregar_a_stock(p_datos jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_auto jsonb;
+  v_vehiculo bigint;
+  v_dominio text;
+  v_venta bigint;
+  v_agregados text[] := ARRAY[]::text[];
+  v_ya_estaban text[] := ARRAY[]::text[];
+BEGIN
+  PERFORM public.exigir_miembro();
+
+  IF jsonb_typeof(p_datos -> 'autos') IS DISTINCT FROM 'array' OR jsonb_array_length(p_datos -> 'autos') = 0 THEN
+    RAISE EXCEPTION 'Indica al menos un auto.' USING ERRCODE = '22023';
+  END IF;
+
+  FOR v_auto IN SELECT * FROM jsonb_array_elements(p_datos -> 'autos') LOOP
+    v_dominio := public.normalizar_dominio(v_auto ->> 'dominio');
+
+    SELECT ve.id INTO v_venta
+    FROM public.ventas ve JOIN public.vehiculos v ON v.id = ve.vehiculo_id
+    WHERE v.dominio = v_dominio AND ve.estado NOT IN ('cancelado', 'entregado')
+    LIMIT 1;
+    IF v_venta IS NULL THEN
+      SELECT pe.venta_id INTO v_venta
+      FROM public.permutas pe
+      JOIN public.ventas ve ON ve.id = pe.venta_id
+      JOIN public.vehiculos v ON v.id = pe.vehiculo_id
+      WHERE v.dominio = v_dominio AND ve.estado NOT IN ('cancelado', 'entregado')
+        AND EXISTS (SELECT 1 FROM public.documentos d WHERE d.venta_id = ve.id AND d.vehiculo_id = v.id)
+      LIMIT 1;
+    END IF;
+    IF v_venta IS NOT NULL THEN
+      RAISE EXCEPTION 'El % esta en la venta #%, que sigue abierta: su documentacion se carga ahi.',
+        v_dominio, v_venta USING ERRCODE = '22023';
+    END IF;
+
+    -- guardar_vehiculo valida el dominio y no pisa los datos que ya habia.
+    v_vehiculo := public.guardar_vehiculo(v_auto);
+
+    IF EXISTS (SELECT 1 FROM public.documentos WHERE vehiculo_id = v_vehiculo AND venta_id IS NULL) THEN
+      v_ya_estaban := v_ya_estaban || v_dominio;
+    ELSE
+      PERFORM public.generar_checklist(NULL, v_vehiculo, 'stock');
+      PERFORM public.anotar('stock', v_dominio, NULL, 'crear', format('Se agrego %s al stock', v_dominio));
+      v_agregados := v_agregados || v_dominio;
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object('agregados', to_jsonb(v_agregados), 'ya_estaban', to_jsonb(v_ya_estaban));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.quitar_de_stock(p_vehiculo_id bigint)
+RETURNS text[]
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_rutas text[];
+  v_copia jsonb;
+  v_dominio text;
+BEGIN
+  PERFORM public.exigir_miembro();
+
+  SELECT dominio INTO v_dominio FROM public.vehiculos WHERE id = p_vehiculo_id;
+  IF v_dominio IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.documentos WHERE vehiculo_id = p_vehiculo_id AND venta_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'Ese auto no esta en stock.' USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT COALESCE(array_agg(a.ruta), ARRAY[]::text[]) INTO v_rutas
+  FROM public.archivos a JOIN public.documentos d ON d.id = a.documento_id
+  WHERE d.vehiculo_id = p_vehiculo_id AND d.venta_id IS NULL;
+
+  IF cardinality(v_rutas) > 0 AND NOT public.es_admin() THEN
+    RAISE EXCEPTION 'Este auto tiene archivos cargados: solo un administrador lo puede sacar del stock.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT jsonb_build_object(
+    'vehiculo', (SELECT to_jsonb(v) FROM public.vehiculos v WHERE v.id = p_vehiculo_id),
+    'documentos', COALESCE((SELECT jsonb_agg(to_jsonb(d)) FROM public.documentos d
+                             WHERE d.vehiculo_id = p_vehiculo_id AND d.venta_id IS NULL), '[]'::jsonb),
+    'archivos', COALESCE((SELECT jsonb_agg(to_jsonb(a)) FROM public.archivos a
+                           JOIN public.documentos d ON d.id = a.documento_id
+                           WHERE d.vehiculo_id = p_vehiculo_id AND d.venta_id IS NULL), '[]'::jsonb)
+  ) INTO v_copia;
+
+  DELETE FROM public.documentos WHERE vehiculo_id = p_vehiculo_id AND venta_id IS NULL;
+
+  PERFORM public.anotar('stock', v_dominio, NULL, 'borrar',
+    format('Se saco %s del stock', v_dominio), v_copia, NULL);
+
+  RETURN v_rutas;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.documentacion_grupos(p_venta_id bigint, p_vehiculo_id bigint)
 RETURNS jsonb
 LANGUAGE sql STABLE
 AS $$
@@ -519,9 +789,92 @@ AS $$
     FROM public.documentos d
     JOIN public.vehiculos v ON v.id = d.vehiculo_id
     LEFT JOIN public.perfiles pa ON pa.id = d.actualizado_por
-    WHERE d.venta_id = p_venta_id
+    WHERE (p_venta_id IS NOT NULL AND d.venta_id = p_venta_id)
+       OR (p_venta_id IS NULL AND d.venta_id IS NULL AND d.vehiculo_id = p_vehiculo_id)
     GROUP BY v.id
   ) AS grupos;
+$$;
+
+CREATE OR REPLACE FUNCTION public.documentacion_de_venta(p_venta_id bigint)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$ SELECT public.documentacion_grupos(p_venta_id, NULL) $$;
+
+CREATE OR REPLACE FUNCTION public.documentacion_de_stock(p_vehiculo_id bigint)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$ SELECT public.documentacion_grupos(NULL, p_vehiculo_id) $$;
+
+-- Ficha de un auto en stock: sus datos y su checklist. Si no esta en stock,
+-- dice en que venta abierta esta (su documentacion se carga ahi).
+CREATE OR REPLACE FUNCTION public.ficha_stock(p_dominio text)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'vehiculo', to_jsonb(v),
+    'en_stock', EXISTS (SELECT 1 FROM public.documentos d WHERE d.vehiculo_id = v.id AND d.venta_id IS NULL),
+    'documentacion', public.documentacion_de_stock(v.id),
+    'venta_abierta', (
+      SELECT min(x.venta_id) FROM (
+        SELECT ve.id AS venta_id FROM public.ventas ve
+        WHERE ve.vehiculo_id = v.id AND ve.estado NOT IN ('cancelado', 'entregado')
+        UNION ALL
+        SELECT pe.venta_id FROM public.permutas pe JOIN public.ventas ve ON ve.id = pe.venta_id
+        WHERE pe.vehiculo_id = v.id AND ve.estado NOT IN ('cancelado', 'entregado')
+      ) AS x)
+  )
+  FROM public.vehiculos v
+  WHERE v.dominio = public.normalizar_dominio(p_dominio);
+$$;
+
+CREATE OR REPLACE FUNCTION public.documentacion_de_stock(p_vehiculo_id bigint)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$ SELECT public.documentacion_grupos(NULL, p_vehiculo_id) $$;
+
+-- Ficha de un auto en stock: sus datos y su checklist. Si no esta en stock,
+-- dice en que venta abierta esta (su documentacion se carga ahi).
+CREATE OR REPLACE FUNCTION public.ficha_stock(p_dominio text)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'vehiculo', to_jsonb(v),
+    'en_stock', EXISTS (SELECT 1 FROM public.documentos d WHERE d.vehiculo_id = v.id AND d.venta_id IS NULL),
+    'documentacion', public.documentacion_de_stock(v.id),
+    'venta_abierta', (
+      SELECT min(x.venta_id) FROM (
+        SELECT ve.id AS venta_id FROM public.ventas ve
+        WHERE ve.vehiculo_id = v.id AND ve.estado NOT IN ('cancelado', 'entregado')
+        UNION ALL
+        SELECT pe.venta_id FROM public.permutas pe JOIN public.ventas ve ON ve.id = pe.venta_id
+        WHERE pe.vehiculo_id = v.id AND ve.estado NOT IN ('cancelado', 'entregado')
+      ) AS x)
+  )
+  FROM public.vehiculos v
+  WHERE v.dominio = public.normalizar_dominio(p_dominio);
+$$;
+
+CREATE OR REPLACE FUNCTION public.ficha_stock(p_dominio text)
+RETURNS jsonb
+LANGUAGE sql STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'vehiculo', to_jsonb(v),
+    'en_stock', EXISTS (SELECT 1 FROM public.documentos d WHERE d.vehiculo_id = v.id AND d.venta_id IS NULL),
+    'documentacion', public.documentacion_de_stock(v.id),
+    'venta_abierta', (
+      SELECT min(x.venta_id) FROM (
+        SELECT ve.id AS venta_id FROM public.ventas ve
+        WHERE ve.vehiculo_id = v.id AND ve.estado NOT IN ('cancelado', 'entregado')
+        UNION ALL
+        SELECT pe.venta_id FROM public.permutas pe JOIN public.ventas ve ON ve.id = pe.venta_id
+        WHERE pe.vehiculo_id = v.id AND ve.estado NOT IN ('cancelado', 'entregado')
+      ) AS x)
+  )
+  FROM public.vehiculos v
+  WHERE v.dominio = public.normalizar_dominio(p_dominio);
 $$;
 
 CREATE OR REPLACE FUNCTION public.sugerir_dominios(p_q text, p_limite integer DEFAULT 8)
@@ -694,7 +1047,7 @@ CREATE OR REPLACE FUNCTION public.panel_documentacion(
 RETURNS jsonb
 LANGUAGE sql STABLE
 AS $$
-  SELECT COALESCE(jsonb_agg(fila ORDER BY orden_nulo, entrega, venta_id DESC), '[]'::jsonb)
+  SELECT COALESCE(jsonb_agg(fila ORDER BY orden_nulo, entrega, venta_id DESC, fila ->> 'dominio'), '[]'::jsonb)
   FROM (
     SELECT
       jsonb_build_object(
@@ -727,6 +1080,35 @@ AS $$
             OR min(ve.dominio) LIKE '%' || public.normalizar_dominio(p_q) || '%'
             OR concat_ws(' ', min(ve.marca), min(ve.modelo), min(ve.descripcion), min(v.cliente_nombre))
                ILIKE '%' || trim(p_q) || '%')
+
+    UNION ALL
+
+    -- Autos en stock (sin venta): van despues de los vendidos.
+    SELECT
+      jsonb_build_object(
+        'venta_id', NULL, 'vehiculo_id', d.vehiculo_id, 'rol', 'stock',
+        'dominio', min(ve.dominio), 'marca', min(ve.marca), 'modelo', min(ve.modelo),
+        'anio', min(ve.anio), 'tenencia', min(ve.tenencia), 'descripcion', min(ve.descripcion),
+        'total', count(*),
+        'listos', count(*) FILTER (WHERE d.estado = 'aprobado'),
+        'faltantes', count(*) FILTER (WHERE d.estado = 'faltante'),
+        'pedidos', count(*) FILTER (WHERE d.estado = 'pedido'),
+        'en_proceso', count(*) FILTER (WHERE d.estado = 'en_proceso'),
+        'archivos', (SELECT count(*) FROM public.archivos a
+                       JOIN public.documentos d2 ON d2.id = a.documento_id
+                      WHERE d2.venta_id IS NULL AND d2.vehiculo_id = d.vehiculo_id)
+      ),
+      NULL,
+      NULL,
+      2
+    FROM public.documentos d
+    JOIN public.vehiculos ve ON ve.id = d.vehiculo_id
+    WHERE d.venta_id IS NULL
+    GROUP BY d.vehiculo_id
+    HAVING (NOT p_solo_pendientes OR count(*) FILTER (WHERE d.estado = 'aprobado') < count(*))
+       AND (COALESCE(trim(p_q), '') = ''
+            OR min(ve.dominio) LIKE '%' || public.normalizar_dominio(p_q) || '%'
+            OR concat_ws(' ', min(ve.marca), min(ve.modelo), min(ve.descripcion)) ILIKE '%' || trim(p_q) || '%')
   ) AS filas;
 $$;
 
@@ -751,6 +1133,8 @@ AS $$
     -- Multas que todavia hay que pagar o resolver.
     'infracciones_abiertas', (SELECT COALESCE(sum(cantidad), 0) FROM public.infracciones
                                 WHERE estado IN ('impaga', 'en_gestion')),
+    -- Autos en stock con su checklist de documentacion.
+    'autos_en_stock', (SELECT count(DISTINCT vehiculo_id) FROM public.documentos WHERE venta_id IS NULL),
     -- Autos que tienen al menos una multa por resolver (el numero del menu).
     'autos_con_infracciones', (SELECT count(DISTINCT vehiculo_id) FROM public.infracciones
                                  WHERE estado IN ('impaga', 'en_gestion')),
@@ -1185,7 +1569,18 @@ REVOKE ALL ON FUNCTION public.infracciones_de_dominio(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.infracciones_de_dominio(text) TO authenticated;
 REVOKE ALL ON FUNCTION public.listar_infracciones(text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.listar_infracciones(text, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.documentacion_grupos(bigint, bigint) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.documentacion_grupos(bigint, bigint) TO authenticated;
+REVOKE ALL ON FUNCTION public.documentacion_de_stock(bigint) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.documentacion_de_stock(bigint) TO authenticated;
+REVOKE ALL ON FUNCTION public.ficha_stock(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ficha_stock(text) TO authenticated;
+REVOKE ALL ON FUNCTION public.agregar_a_stock(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.agregar_a_stock(jsonb) TO authenticated;
+REVOKE ALL ON FUNCTION public.quitar_de_stock(bigint) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.quitar_de_stock(bigint) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
+REVOKE ALL ON FUNCTION public.devolver_a_stock(bigint, bigint) FROM PUBLIC, anon, authenticated;
 
 NOTIFY pgrst, 'reload schema';
 
@@ -1215,7 +1610,7 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 7 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 8 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
   SELECT 5, 'Sugerencias del buscador',
@@ -1233,7 +1628,15 @@ SELECT control, estado, detalle FROM (
               THEN 'OK' ELSE 'FALTA' END,
          'por municipio, con quien las resuelve y detalles'
   UNION ALL
-  SELECT 7, 'Tus datos',
+  SELECT 7, 'Autos en stock',
+         CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                            WHERE table_schema = 'public' AND table_name = 'documentos'
+                              AND column_name = 'venta_id' AND is_nullable = 'YES')
+                   AND to_regprocedure('public.agregar_a_stock(jsonb)') IS NOT NULL
+              THEN 'OK' ELSE 'FALTA' END,
+         'documentacion de autos sin vender'
+  UNION ALL
+  SELECT 8, 'Tus datos',
          'INFO',
          (SELECT count(*) FROM public.ventas) || ' venta(s) · '
          || (SELECT count(*) FROM public.vehiculos) || ' auto(s) · '

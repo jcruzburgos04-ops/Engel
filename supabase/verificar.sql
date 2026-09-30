@@ -17,7 +17,8 @@ WITH controles AS (
         AND p.proname IN ('crear_venta','actualizar_venta','venta_completa','listar_ventas',
                           'buscar_dominio','panel_documentacion','estadisticas','es_miembro',
                           'version_esquema','sugerir_dominios',
-                          'infracciones_de_dominio','guardar_infracciones')) AS funciones,
+                          'infracciones_de_dominio','guardar_infracciones',
+                          'agregar_a_stock','ficha_stock')) AS funciones,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'public') AS reglas,
     (SELECT count(*) FROM storage.buckets WHERE id = 'documentacion') AS deposito,
     (SELECT count(*) FROM pg_policies WHERE schemaname = 'storage'
@@ -31,7 +32,7 @@ SELECT control, estado, detalle FROM (
          tablas || ' de 15' AS detalle FROM controles
   UNION ALL
   SELECT 2, 'Funciones del sistema',
-         CASE WHEN funciones = 12 THEN 'OK' ELSE 'FALTA' END, funciones || ' de 12' FROM controles
+         CASE WHEN funciones = 14 THEN 'OK' ELSE 'FALTA' END, funciones || ' de 14' FROM controles
   UNION ALL
   SELECT 3, 'Reglas de acceso a los datos',
          CASE WHEN reglas >= 20 THEN 'OK' ELSE 'FALTA' END,
@@ -50,9 +51,9 @@ SELECT control, estado, detalle FROM (
   SELECT 7, 'Ventas cargadas', 'INFO', ventas::text FROM controles
   UNION ALL
   SELECT 8, '>>> RESULTADO',
-         CASE WHEN tablas = 15 AND funciones = 12 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 15 AND funciones = 14 AND deposito = 1 AND reglas_archivos = 4
               THEN 'TODO LISTO' ELSE 'REVISAR' END,
-         CASE WHEN tablas = 15 AND funciones = 12 AND deposito = 1 AND reglas_archivos = 4
+         CASE WHEN tablas = 15 AND funciones = 14 AND deposito = 1 AND reglas_archivos = 4
               THEN 'La base esta lista.'
               ELSE 'Volve a pegar instalar.sql completo y correlo de nuevo.' END
   FROM controles

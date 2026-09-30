@@ -37,7 +37,16 @@ const FUNCIONES = [
   ['03-funciones.sql', 'estados_documento'],
   ['03-funciones.sql', 'guardar_vehiculo'],
   ['03-funciones.sql', 'actualizar_vehiculo'],
+  ['03-funciones.sql', 'generar_checklist'],
+  ['03-funciones.sql', 'devolver_a_stock'],
+  ['03-funciones.sql', 'quitar_permuta'],
+  ['03-funciones.sql', 'borrar_venta'],
+  ['03-funciones.sql', 'agregar_a_stock'],
+  ['03-funciones.sql', 'quitar_de_stock'],
+  ['04-consultas.sql', 'documentacion_grupos'],
   ['04-consultas.sql', 'documentacion_de_venta'],
+  ['04-consultas.sql', 'documentacion_de_stock'],
+  ['04-consultas.sql', 'ficha_stock'],
   ['04-consultas.sql', 'sugerir_dominios'],
   ['04-consultas.sql', 'venta_completa'],
   ['04-consultas.sql', 'listar_ventas'],
@@ -56,7 +65,12 @@ const FUNCIONES_NUEVAS = [
   'guardar_infracciones(jsonb)',
   'registrar_consulta_infracciones(text, bigint, text)',
   'infracciones_de_dominio(text)',
-  'listar_infracciones(text, text)'
+  'listar_infracciones(text, text)',
+  'documentacion_grupos(bigint, bigint)',
+  'documentacion_de_stock(bigint)',
+  'ficha_stock(text)',
+  'agregar_a_stock(jsonb)',
+  'quitar_de_stock(bigint)'
 ];
 
 const salida = `-- =====================================================================
@@ -73,6 +87,7 @@ const salida = `-- =============================================================
 --   5. Infracciones: cuantas multas tiene cada auto en cada municipio,
 --      paginas de consulta y seguimiento del pago.
 --   6. Infracciones: quien las resuelve y detalles.
+--   7. Autos en stock: documentacion de autos que todavia no se vendieron.
 --
 -- Se puede correr aunque ya hayas aplicado alguno: no repite nada.
 -- Al final aparece una tabla con el resultado.
@@ -167,6 +182,8 @@ DROP FUNCTION IF EXISTS public.guardar_infraccion(jsonb);
 
 ${extraerBloque('01-esquema.sql', 'infracciones')}
 
+${extraerBloque('01-esquema.sql', 'stock')}
+
 -- ---------------------------------------------------------------------
 -- 1. Las funciones
 -- ---------------------------------------------------------------------
@@ -250,6 +267,7 @@ ${extraerBloque('06-permisos.sql', 'infracciones')}
 ${FUNCIONES_NUEVAS.map((f) => `REVOKE ALL ON FUNCTION public.${f} FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.${f} TO authenticated;`).join('\n')}
 GRANT EXECUTE ON FUNCTION public.version_esquema() TO anon, authenticated;
+REVOKE ALL ON FUNCTION public.devolver_a_stock(bigint, bigint) FROM PUBLIC, anon, authenticated;
 
 NOTIFY pgrst, 'reload schema';
 
@@ -279,7 +297,7 @@ SELECT control, estado, detalle FROM (
             FROM (SELECT estado, count(*) AS cantidad FROM public.documentos GROUP BY estado) AS t)
   UNION ALL
   SELECT 4, 'Version de la base',
-         CASE WHEN public.version_esquema() >= 7 THEN 'OK' ELSE 'FALTA' END,
+         CASE WHEN public.version_esquema() >= 8 THEN 'OK' ELSE 'FALTA' END,
          'version ' || public.version_esquema()
   UNION ALL
   SELECT 5, 'Sugerencias del buscador',
@@ -297,7 +315,15 @@ SELECT control, estado, detalle FROM (
               THEN 'OK' ELSE 'FALTA' END,
          'por municipio, con quien las resuelve y detalles'
   UNION ALL
-  SELECT 7, 'Tus datos',
+  SELECT 7, 'Autos en stock',
+         CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                            WHERE table_schema = 'public' AND table_name = 'documentos'
+                              AND column_name = 'venta_id' AND is_nullable = 'YES')
+                   AND to_regprocedure('public.agregar_a_stock(jsonb)') IS NOT NULL
+              THEN 'OK' ELSE 'FALTA' END,
+         'documentacion de autos sin vender'
+  UNION ALL
+  SELECT 8, 'Tus datos',
          'INFO',
          (SELECT count(*) FROM public.ventas) || ' venta(s) · '
          || (SELECT count(*) FROM public.vehiculos) || ' auto(s) · '
