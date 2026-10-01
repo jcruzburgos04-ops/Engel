@@ -1,0 +1,12 @@
+// Publicacion en Cloudflare Workers (gratis): la web son archivos estaticos,
+// asi que el Worker solo sirve la carpeta public. No hay codigo de servidor.
+// El build (node herramientas/marcar-version.js) anota la version publicada
+// para que las pestanas abiertas se actualicen solas.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "engel",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public"
+  }
+}
