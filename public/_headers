@@ -1,0 +1,26 @@
+# Encabezados de la web para Cloudflare Pages (Netlify tambien lee este
+# archivo). Son los mismos que estan en netlify.toml.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# La pagina y el codigo se revalidan siempre: asi una version nueva llega
+# enseguida, sin que nadie tenga que borrar nada.
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/js/*
+  Cache-Control: no-cache
+
+/css/*
+  Cache-Control: no-cache
+
+# Con esto las pestanas abiertas se enteran de que hay una version nueva.
+/version.json
+  Cache-Control: no-store

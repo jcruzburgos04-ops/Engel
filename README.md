@@ -142,19 +142,23 @@ export const config = {
 
 ### 4. Publicar la web
 
-Cualquiera de estas opciones es gratis y sirve igual:
+**Cloudflare Pages** (la recomendada: gratis tambien para uso comercial, sin
+cobrar por visitas ni por cada publicacion; tope de unas 500 publicaciones
+por mes, que son los cambios al programa, no las cargas de datos)
+1. Entrar a <https://dash.cloudflare.com> → **Workers & Pages** → **Create** →
+   pestaña **Pages** → **Import an existing Git repository** y conectar este
+   repositorio de GitHub.
+2. **Production branch**: la rama de este repositorio. **Framework preset**:
+   None. **Build command**: `node herramientas/marcar-version.js`. **Build
+   output directory**: `public`.
+3. Cloudflare te da el link (`algo.pages.dev`). Ese es el que se comparte.
+   Los encabezados de la web ya estan en `public/_headers`.
 
-**Netlify** (la mas simple)
-1. Entrar a <https://app.netlify.com> → **Add new site** → **Import an
-   existing project** y conectar este repositorio de GitHub.
-2. No hay nada que configurar: el archivo `netlify.toml` ya dice que publique
-   la carpeta `public`.
-3. Netlify te da el link. Ese es el que se comparte.
-
-**Cloudflare Pages**: conectar el repositorio, dejar vacio el comando de
-compilacion y poner `public` como carpeta de salida.
+**Netlify**: tambien funciona (el archivo `netlify.toml` ya esta listo), pero
+el plan gratis cobra creditos por cada publicacion y se agotan rapido.
 
 **Vercel**: conectar el repositorio; el archivo `vercel.json` ya esta listo.
+Ojo: el plan gratis de Vercel es solo para uso no comercial.
 
 **GitHub Pages**: en Settings → Pages, publicar la rama y la carpeta `public`.
 
