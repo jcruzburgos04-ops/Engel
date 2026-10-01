@@ -276,10 +276,6 @@ BEGIN
 
   IF v_id IS NULL THEN
     v_tenencia := COALESCE(NULLIF(p_datos ->> 'tenencia', ''), 'propio');
-    IF v_tenencia = 'consigna' AND public.txt(p_datos, 'consignante_nombre', 150) = '' THEN
-      RAISE EXCEPTION 'Si el auto esta en consigna tenes que indicar el nombre del consignante.'
-        USING ERRCODE = '22023';
-    END IF;
 
     INSERT INTO public.vehiculos (
       dominio, marca, modelo, version, anio, color, kilometraje,
@@ -371,10 +367,6 @@ BEGIN
 
   IF v_id IS NULL THEN
     v_tenencia := COALESCE(NULLIF(p_datos ->> 'tenencia', ''), 'propio');
-    IF v_tenencia = 'consigna' AND public.txt(p_datos, 'consignante_nombre', 150) = '' THEN
-      RAISE EXCEPTION 'Si el auto esta en consigna tenes que indicar el nombre del consignante.'
-        USING ERRCODE = '22023';
-    END IF;
 
     INSERT INTO public.vehiculos (
       dominio, marca, modelo, version, anio, color, kilometraje,
@@ -434,10 +426,6 @@ BEGIN
 
   IF v_id IS NULL THEN
     v_tenencia := COALESCE(NULLIF(p_datos ->> 'tenencia', ''), 'propio');
-    IF v_tenencia = 'consigna' AND public.txt(p_datos, 'consignante_nombre', 150) = '' THEN
-      RAISE EXCEPTION 'Si el auto esta en consigna tenes que indicar el nombre del consignante.'
-        USING ERRCODE = '22023';
-    END IF;
 
     INSERT INTO public.vehiculos (
       dominio, marca, modelo, version, anio, color, kilometraje,

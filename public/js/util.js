@@ -207,6 +207,12 @@ export function etiquetaDominio(dominio, claro = false) {
   return h('span', { class: `dominio${claro ? ' dominio--claro' : ''}` }, formatearDominio(dominio));
 }
 
+// El nombre que acompana al auto: el titular si es propio, el consignante si
+// esta en consigna. Es opcional en los dos casos.
+export function nombreSegunTenencia(tenencia) {
+  return tenencia === 'consigna' ? 'Consignante' : 'Titular';
+}
+
 export function etiquetaTenencia(tenencia) {
   return tenencia === 'consigna'
     ? h('span', { class: 'etiqueta etiqueta--aviso' }, 'Consigna')

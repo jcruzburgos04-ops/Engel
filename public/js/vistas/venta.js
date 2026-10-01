@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import {
   h, vaciar, fecha, fechaHora, dinero, numero, diasHasta, avisar, confirmar, abrirModal,
   campo, campoAncho, opciones, etiquetaEstadoVenta, etiquetaDominio, etiquetaTenencia,
-  descripcionVehiculo, ESTADOS_VENTA
+  descripcionVehiculo, ESTADOS_VENTA, nombreSegunTenencia
 } from '../util.js';
 import { campoAuto, campoAutoAncho } from '../campo-auto.js';
 import { esperarGuardado } from '../guardado.js';
@@ -214,9 +214,7 @@ export async function vistaVenta({ id }) {
           campoAuto2('Modelo', h('input', { value: v.modelo || '' }), 'modelo'),
           campoAuto2('Ano', h('input', { type: 'number', value: v.anio ?? '' }), 'anio'),
           campoAuto2('Origen del auto', selectorTenencia, 'tenencia'),
-          v.tenencia === 'consigna'
-            ? campoAuto2('Consignante', h('input', { value: v.consignante_nombre || '' }), 'consignante_nombre')
-            : null,
+          campoAuto2(nombreSegunTenencia(v.tenencia), h('input', { value: v.consignante_nombre || '', placeholder: 'Opcional' }), 'consignante_nombre'),
           v.tenencia === 'consigna'
             ? campoAuto2('Contacto del consignante', h('input', { value: v.consignante_contacto || '' }), 'consignante_contacto')
             : null,

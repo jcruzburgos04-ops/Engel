@@ -106,7 +106,7 @@ export async function descargarVentasCsv(filtros = {}) {
 
   const encabezados = [
     'Venta', 'Fecha', 'Vendio', 'Estado', 'Dominio', 'Marca', 'Modelo', 'Version', 'Anio',
-    'Color', 'Kilometraje', 'Origen', 'Consignante', 'Descripcion', 'Cliente', 'Telefono',
+    'Color', 'Kilometraje', 'Origen', 'Titular / consignante', 'Descripcion', 'Cliente', 'Telefono',
     'Precio', 'Moneda', 'Forma de pago', 'Permutas', 'Entrega estimada', 'Entrega real',
     'Documentacion', 'Detalles'
   ];

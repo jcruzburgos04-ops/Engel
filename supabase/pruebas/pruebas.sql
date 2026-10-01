@@ -146,9 +146,12 @@ SELECT debe_fallar('exige el nombre del cliente',
   $$ SELECT public.crear_venta('{"vendedor_id":"22222222-2222-2222-2222-222222222222","cliente_nombre":"","vehiculo":{"dominio":"CD456EF"}}'::jsonb) $$,
   'nombre del cliente');
 
-SELECT debe_fallar('exige el consignante si el auto esta en consigna',
-  $$ SELECT public.crear_venta('{"vendedor_id":"22222222-2222-2222-2222-222222222222","cliente_nombre":"X","vehiculo":{"dominio":"CD456EF","tenencia":"consigna"}}'::jsonb) $$,
-  'consignante');
+-- El nombre del consignante (o del titular) es opcional.
+SELECT verificar('un auto en consigna se puede cargar sin consignante',
+  (SELECT public.guardar_vehiculo('{"dominio":"CD457EF","tenencia":"consigna"}'::jsonb) IS NOT NULL));
+SELECT public.guardar_vehiculo('{"dominio":"CD458EF","tenencia":"propio","consignante_nombre":"Luis Diaz"}'::jsonb);
+SELECT verificar('un auto propio puede tener el nombre del titular',
+  (SELECT consignante_nombre = 'Luis Diaz' FROM public.vehiculos WHERE dominio = 'CD458EF'));
 
 \echo ''
 \echo '== Cargar una moto =='
@@ -556,8 +559,9 @@ SELECT verificar('agregar de nuevo un auto que ya esta en stock no lo duplica',
 SELECT debe_fallar('un auto de una venta abierta no se agrega al stock',
   $$ SELECT public.agregar_a_stock('{"autos":[{"dominio":"AB123CD"}]}'::jsonb) $$, 'sigue abierta');
 
-SELECT debe_fallar('un auto en consigna necesita el consignante',
-  $$ SELECT public.agregar_a_stock('{"autos":[{"dominio":"AG300CC","tenencia":"consigna"}]}'::jsonb) $$, 'consignante');
+SELECT verificar('un auto en consigna entra al stock sin consignante',
+  (SELECT jsonb_array_length(public.agregar_a_stock('{"autos":[{"dominio":"AG300CC","tenencia":"consigna"}]}'::jsonb) -> 'agregados') = 1));
+SELECT public.quitar_de_stock((SELECT id FROM public.vehiculos WHERE dominio = 'AG300CC'));
 
 SELECT debe_fallar('un dominio invalido no entra al stock',
   $$ SELECT public.agregar_a_stock('{"autos":[{"dominio":"XX1"}]}'::jsonb) $$, 'formato valido');

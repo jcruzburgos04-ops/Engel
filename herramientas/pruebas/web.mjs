@@ -560,10 +560,9 @@ ok((await p.locator('.modal .stock__fila').count()) === 2, 'Enter en el año agr
 await p.locator('.modal .stock__dominio').nth(1).fill('AL700GG');
 await p.locator('.modal .stock__marca').nth(1).fill('Peugeot');
 await p.locator('.modal .stock__tenencia').nth(1).selectOption('consigna');
-await p.click('.modal__pie button:has-text("Agregar al stock")');
-await p.waitForSelector('.modal .aviso--error', { timeout: 5000 });
-ok(/consignante/i.test(await p.locator('.modal .aviso--error').innerText()), 'un auto en consigna pide el consignante');
-await p.locator('.modal .stock__consignante').nth(1).fill('Ana Paz');
+ok((await p.locator('.modal .stock__consignante').nth(1).getAttribute('placeholder')).startsWith('Consignante'), 'en consigna el casillero pide "Consignante"');
+ok((await p.locator('.modal .stock__consignante').nth(0).getAttribute('placeholder')).startsWith('Titular'), 'en propio el casillero pide "Titular"');
+// Ninguno de los dos nombres es obligatorio: se guarda sin completarlos.
 await p.click('.modal__pie button:has-text("Agregar al stock")');
 await p.waitForSelector('.modal', { state: 'detached', timeout: 15000 });
 await p.waitForSelector('tr.fila--stock', { timeout: 15000 });
@@ -577,7 +576,7 @@ await p.locator('tr.fila--stock', { hasText: 'AK 600 FF' }).locator('a:has-text(
 await p.waitForSelector('.doc-item', { timeout: 15000 });
 ok(/#\/stock\/AK600FF$/.test(p.url()), 'Cargar abre la ficha del auto en stock');
 ok((await p.locator('.doc-item').count()) === 8, 'el auto en stock tiene su checklist de 8 documentos');
-ok(await p.locator('.campo', { hasText: 'Consignante' }).isHidden(), 'un auto propio no muestra el consignante');
+ok(await p.locator('.campo', { hasText: 'Titular' }).isVisible(), 'un auto propio tiene el campo "Titular" (opcional)');
 ok(/En stock/.test(await p.locator('.tarjeta__titulo').last().innerText()), 'la tarjeta dice que esta en stock');
 
 const archivoStock = `${SALIDA}/titulo-stock.pdf`;

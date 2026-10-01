@@ -103,10 +103,6 @@ BEGIN
 
   IF v_id IS NULL THEN
     v_tenencia := COALESCE(NULLIF(p_datos ->> 'tenencia', ''), 'propio');
-    IF v_tenencia = 'consigna' AND public.txt(p_datos, 'consignante_nombre', 150) = '' THEN
-      RAISE EXCEPTION 'Si el auto esta en consigna tenes que indicar el nombre del consignante.'
-        USING ERRCODE = '22023';
-    END IF;
 
     INSERT INTO public.vehiculos (
       dominio, marca, modelo, version, anio, color, kilometraje,
@@ -529,6 +525,8 @@ $$;
 -- Da de alta uno o varios autos en stock, con su checklist de documentacion.
 --   {"autos": [{"dominio": "AB123CD", "marca": "...", "modelo": "...", "anio": 2019,
 --               "tenencia": "propio", "consignante_nombre": "..."}, ...]}
+-- consignante_nombre es el nombre del titular (propio) o del consignante
+-- (consigna). Es opcional en los dos casos.
 -- Un auto que ya estaba en stock no se duplica. Uno que esta en una venta
 -- abierta no se puede agregar (su documentacion esta en la venta).
 CREATE OR REPLACE FUNCTION public.agregar_a_stock(p_datos jsonb)

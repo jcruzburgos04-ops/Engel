@@ -1,4 +1,4 @@
-import { h, campo, campoAncho, campoDominio, opciones } from '../util.js';
+import { h, campo, campoAncho, campoDominio, opciones, nombreSegunTenencia } from '../util.js';
 
 // Bloque de campos de un vehiculo, reutilizado por el formulario de venta,
 // por las permutas y por la edicion del auto vendido.
@@ -21,21 +21,21 @@ export function camposVehiculo(datos = {}, { conTenencia = true, requerido = tru
       [{ valor: 'propio', texto: 'Propio (de la concesionaria)' }, { valor: 'consigna', texto: 'En consigna' }],
       datos.tenencia || 'propio'
     ),
-    consignante_nombre: h('input', { value: datos.consignante_nombre || '', placeholder: 'Nombre del titular', autocomplete: 'off' }),
+    consignante_nombre: h('input', { value: datos.consignante_nombre || '', placeholder: 'Nombre (opcional)', autocomplete: 'off' }),
     consignante_contacto: h('input', { value: datos.consignante_contacto || '', placeholder: 'Telefono o email', autocomplete: 'off' })
   };
 
   controles.descripcion.value = datos.descripcion || '';
 
-  const camposConsigna = h(
-    'div',
-    { class: 'campos', style: 'grid-column:1/-1' },
-    campo('Consignante', controles.consignante_nombre),
-    campo('Contacto del consignante', controles.consignante_contacto)
-  );
+  // El nombre va siempre (titular o consignante, opcional); el contacto,
+  // solo en consigna.
+  const campoNombre = campo(nombreSegunTenencia(controles.tenencia.value), controles.consignante_nombre, 'Opcional');
+  const campoContacto = campo('Contacto del consignante', controles.consignante_contacto, 'Opcional');
+  const camposConsigna = h('div', { class: 'campos', style: 'grid-column:1/-1' }, campoNombre, campoContacto);
 
   const sincronizarConsigna = () => {
-    camposConsigna.style.display = controles.tenencia.value === 'consigna' ? '' : 'none';
+    campoNombre.querySelector('label').textContent = nombreSegunTenencia(controles.tenencia.value);
+    campoContacto.style.display = controles.tenencia.value === 'consigna' ? '' : 'none';
   };
   controles.tenencia.addEventListener('change', sincronizarConsigna);
   sincronizarConsigna();

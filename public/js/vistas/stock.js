@@ -8,7 +8,7 @@ import { campoAuto } from '../campo-auto.js';
 import {
   h, avisar, confirmar, abrirModal, opciones, vacio, etiquetaDominio,
   etiquetaTenencia, descripcionVehiculo, dominioEsValido, normalizarDominio, formatearDominio,
-  campoDominio
+  campoDominio, nombreSegunTenencia
 } from '../util.js';
 import { encabezado, navegar, estado } from '../app.js';
 import { bloqueDocumentacion, botonZip } from './documentos-ui.js';
@@ -33,10 +33,13 @@ export function abrirAltaStock({ alGuardar } = {}) {
     const modelo = h('input', { placeholder: 'Modelo', class: 'stock__modelo' });
     const anio = h('input', { type: 'number', min: 1950, max: 2100, placeholder: 'Año', inputMode: 'numeric', class: 'stock__anio' });
     const tenencia = opciones(h('select', { class: 'stock__tenencia' }), TENENCIAS, 'propio');
-    const consignante = h('input', { placeholder: 'Nombre del consignante', class: 'stock__consignante', hidden: true });
+    // Titular (propio) o consignante (consigna). Opcional en los dos casos.
+    // El titulo de la columna solo se ve en el primer renglon: lo que
+    // corresponde a cada auto se aclara dentro del casillero.
+    const consignante = h('input', { placeholder: `${nombreSegunTenencia('propio')} (opcional)`, class: 'stock__consignante' });
+    const rotuloNombre = h('span', { class: 'carga__rotulo' }, 'Titular / consignante');
     tenencia.addEventListener('change', () => {
-      consignante.hidden = tenencia.value !== 'consigna';
-      if (!consignante.hidden) consignante.focus();
+      consignante.placeholder = `${nombreSegunTenencia(tenencia.value)} (opcional)`;
     });
 
     // Enter en el ultimo dato de un renglon agrega otro: asi se cargan
@@ -60,14 +63,14 @@ export function abrirAltaStock({ alGuardar } = {}) {
         h('label', {}, h('span', { class: 'carga__rotulo' }, 'Modelo'), modelo),
         h('label', {}, h('span', { class: 'carga__rotulo' }, 'Año'), anio),
         h('label', {}, h('span', { class: 'carga__rotulo' }, 'Origen'), tenencia),
+        h('label', {}, rotuloNombre, consignante),
         h('button', {
           class: 'boton boton--chico',
           type: 'button',
           title: 'Quitar este auto',
           onClick: () => { if (filas.children.length > 1) bloque.remove(); }
         }, '×')
-      ),
-      consignante
+      )
     );
     bloque.leer = () => ({
       dominio: normalizarDominio(dominio.value),
@@ -100,9 +103,6 @@ export function abrirAltaStock({ alGuardar } = {}) {
       if (vistos.has(auto.dominio)) return mostrarError(`El ${formatearDominio(auto.dominio)} esta dos veces.`);
       vistos.add(auto.dominio);
       if (auto.anio && !/^\d{4}$/.test(auto.anio)) return mostrarError(`${auto.dominio}: el año tiene que tener 4 numeros.`);
-      if (auto.tenencia === 'consigna' && !auto.consignante_nombre) {
-        return mostrarError(`${auto.dominio} esta en consigna: falta el nombre del consignante.`);
-      }
       autos.push(auto);
     }
     if (!autos.length) return mostrarError('Carga al menos un auto.');
@@ -133,7 +133,7 @@ export function abrirAltaStock({ alGuardar } = {}) {
       {},
       error,
       h('p', { class: 'tenue', style: 'font-size:.85rem;margin:0 0 .75rem' },
-        'Cada auto queda con su checklist de documentacion. Cuando se venda, al cargar la venta con ese dominio, ' +
+        'Cada auto queda con su checklist de documentacion. El titular o consignante es opcional. Cuando se venda, al cargar la venta con ese dominio, ' +
           'la documentacion pasa sola a la venta. Tip: Enter en el año agrega otro renglon.'),
       filas,
       h('button', { class: 'boton boton--chico', type: 'button', style: 'margin-top:.25rem',
@@ -213,10 +213,12 @@ export async function vistaStock({ dominio }) {
   }
 
   const selectorTenencia = opciones(h('select', {}), TENENCIAS, v.tenencia);
-  const consignante = h('input', { value: v.consignante_nombre || '' });
-  const campoConsignante = campoDelAuto(v, 'Consignante', consignante, 'consignante_nombre');
-  campoConsignante.hidden = v.tenencia !== 'consigna';
-  selectorTenencia.addEventListener('change', () => { campoConsignante.hidden = selectorTenencia.value !== 'consigna'; });
+  // Titular o consignante segun el origen; opcional en los dos casos.
+  const consignante = h('input', { value: v.consignante_nombre || '', placeholder: 'Opcional' });
+  const campoConsignante = campoDelAuto(v, nombreSegunTenencia(v.tenencia), consignante, 'consignante_nombre');
+  selectorTenencia.addEventListener('change', () => {
+    campoConsignante.querySelector('label').textContent = nombreSegunTenencia(selectorTenencia.value);
+  });
 
   const tieneArchivos = ficha.documentacion.some((g) => g.items.some((i) => i.archivos.length));
   const esAdmin = estado.usuario && estado.usuario.rol === 'admin';
