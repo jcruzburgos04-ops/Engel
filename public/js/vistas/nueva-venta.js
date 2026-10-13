@@ -299,10 +299,18 @@ export async function vistaNuevaVenta() {
     );
   }
 
+  // Desde la ficha de un auto en stock se llega con el dominio en el link
+  // (#/ventas/nueva?dominio=AB123CD): se completa con lo que ya estaba cargado.
+  const dominioDelLink = new URLSearchParams(location.hash.split('?')[1] || '').get('dominio');
+  if (dominioDelLink) {
+    vehiculo.controles.dominio.value = String(dominioDelLink).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    await vehiculo.completarDesdeLoCargado();
+  }
+
   return h(
     'div',
     {},
-    encabezado('Cargar venta', 'Se guarda un borrador solo mientras completas; los 8 documentos del checklist se generan al guardar'),
+    encabezado('Cargar venta', 'Se guarda un borrador solo mientras completas; si el auto ya estaba cargado, su documentacion pasa a la venta'),
     formulario
   );
 }

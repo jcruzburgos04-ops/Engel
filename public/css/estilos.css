@@ -521,6 +521,7 @@ td.acciones { text-align: right; white-space: nowrap; }
   align-items: end;
 }
 .stock__fila label { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
+.aviso-dominio { margin-bottom: .875rem; }
 .fila--stock td:first-child { border-left: 4px solid var(--alerta); }
 
 @media (max-width: 560px) {

@@ -592,12 +592,17 @@ await p.waitForSelector('.autoguardado__marca--ok', { timeout: 10000 });
 ok(psqlValor("SELECT modelo FROM public.vehiculos WHERE dominio = 'AK600FF'") === 'Kwid Intens', 'los datos del auto se guardan solos');
 await captura(p, '31-ficha-stock');
 
-// Se vende: la documentacion del stock pasa a la venta, con el archivo.
-await p.click('a[href="#/ventas/nueva"]');
-await p.waitForSelector('form');
-await p.fill('input.dominio-input', 'AK600FF');
-await p.locator('.campo', { hasText: 'Marca' }).first().locator('input').fill('Renault');
-await p.locator('.campo', { hasText: 'Modelo' }).first().locator('input').fill('Kwid Intens');
+// Se vende desde la ficha: el formulario viene completo con lo cargado y
+// la documentacion del stock pasa a la venta, con el archivo.
+await p.click('a[href="#/ventas/nueva?dominio=AK600FF"]');
+await p.waitForSelector('form .aviso-dominio:not([hidden])', { timeout: 15000 });
+ok((await p.inputValue('input.dominio-input')) === 'AK600FF', 'Cargar venta abre el formulario con el dominio puesto');
+ok((await p.locator('.campo', { hasText: 'Marca' }).first().locator('input').inputValue()) === 'Renault' &&
+   (await p.locator('.campo', { hasText: 'Modelo' }).first().locator('input').inputValue()) === 'Kwid Intens' &&
+   (await p.locator('.campo', { hasText: 'Ano' }).first().locator('input').inputValue()) === '2020',
+  'los datos del auto se completan solos con lo cargado');
+const avisoVenta = await p.locator('form .aviso-dominio').innerText();
+ok(/1 de 8 documentos aprobados/.test(avisoVenta) && /pasa a la venta/.test(avisoVenta), `avisa que la documentacion pasa a la venta (${avisoVenta.slice(0, 70)}…)`);
 await p.locator('.campo', { hasText: 'Comprador' }).first().locator('input').fill('Pedro Sosa');
 await p.locator('.campo', { hasText: 'Celular' }).first().locator('input').fill('11 4444 4444');
 await p.click('button:has-text("Guardar venta")');

@@ -1,4 +1,5 @@
-import { h, campo, campoAncho, campoDominio, opciones, nombreSegunTenencia } from '../util.js';
+import { api } from '../api.js';
+import { h, campo, campoAncho, campoDominio, opciones, nombreSegunTenencia, dominioEsValido, normalizarDominio, formatearDominio } from '../util.js';
 
 // Bloque de campos de un vehiculo, reutilizado por el formulario de venta,
 // por las permutas y por la edicion del auto vendido.
@@ -6,7 +7,7 @@ import { h, campo, campoAncho, campoDominio, opciones, nombreSegunTenencia } fro
 // Arriba van solo los datos que hacen falta si o si para identificar el auto
 // (dominio, marca, modelo y ano). El resto queda plegado, para no demorar la
 // carga con campos que casi nunca se completan.
-export function camposVehiculo(datos = {}, { conTenencia = true, requerido = true } = {}) {
+export function camposVehiculo(datos = {}, { conTenencia = true, requerido = true, autocompletar = true } = {}) {
   const controles = {
     dominio: campoDominio({ value: datos.dominio || '', required: requerido }),
     marca: h('input', { value: datos.marca || '', placeholder: 'Toyota', autocomplete: 'off' }),
@@ -56,9 +57,82 @@ export function camposVehiculo(datos = {}, { conTenencia = true, requerido = tru
     )
   );
 
+  // Si el dominio ya estaba cargado (por ejemplo, un auto en stock), se
+  // completan solos los datos que todavia esten vacios y se avisa que su
+  // documentacion pasa a la venta.
+  const avisoDominio = h('div', { class: 'aviso-dominio', hidden: true });
+  const tocados = new Set();
+  for (const [nombre, control] of Object.entries(controles)) {
+    if (nombre === 'dominio') continue;
+    control.addEventListener('input', () => tocados.add(nombre));
+    control.addEventListener('change', () => tocados.add(nombre));
+  }
+  let ultimoConsultado = '';
+
+  async function completarDesdeLoCargado() {
+    const d = normalizarDominio(controles.dominio.value);
+    if (!autocompletar || d === ultimoConsultado) return;
+    ultimoConsultado = d;
+    avisoDominio.hidden = true;
+    if (!dominioEsValido(d)) return;
+
+    let ficha;
+    try {
+      ficha = await api.fichaStock(d);
+    } catch {
+      return; // dominio nuevo: no hay nada que completar
+    }
+    if (normalizarDominio(controles.dominio.value) !== d) return; // siguio escribiendo
+
+    const v = ficha.vehiculo || {};
+    const completados = [];
+    const poner = (nombre, valor) => {
+      const control = controles[nombre];
+      if (!control || tocados.has(nombre) || valor === null || valor === undefined || valor === '') return;
+      if (nombre === 'tenencia') {
+        if (control.value === valor) return;
+      } else if (String(control.value).trim() !== '') {
+        return;
+      }
+      control.value = valor;
+      completados.push(nombre);
+    };
+    for (const nombre of ['marca', 'modelo', 'anio', 'version', 'color', 'kilometraje', 'descripcion']) poner(nombre, v[nombre]);
+    if (conTenencia) {
+      poner('tenencia', v.tenencia);
+      poner('consignante_nombre', v.consignante_nombre);
+      poner('consignante_contacto', v.consignante_contacto);
+      sincronizarConsigna();
+    }
+    if (completados.length) formulario().dispatchEvent(new Event('input', { bubbles: true }));
+
+    const grupo = (ficha.documentacion || [])[0];
+    let texto;
+    let clase = 'aviso aviso--info';
+    if (ficha.venta_abierta) {
+      texto = `Ojo: ${formatearDominio(d)} ya esta en la venta #${ficha.venta_abierta}, que sigue abierta.`;
+      clase = 'aviso aviso--error';
+    } else if (ficha.en_stock && grupo) {
+      const archivos = grupo.items.reduce((n, i) => n + i.archivos.length, 0);
+      texto = `📦 ${formatearDominio(d)} esta en stock con ${grupo.listos} de ${grupo.total} documentos aprobados` +
+        (archivos ? ` y ${archivos} archivo(s)` : '') +
+        '. Al guardar la venta, toda esa documentacion pasa a la venta.';
+    } else {
+      texto = `${formatearDominio(d)} ya estaba cargado.`;
+    }
+    if (completados.length) texto += ' Se completaron los datos del auto con lo que ya estaba cargado.';
+    avisoDominio.className = `${clase} aviso-dominio`;
+    avisoDominio.textContent = texto;
+    avisoDominio.hidden = false;
+  }
+  const formulario = () => contenedor.closest('form') || contenedor;
+  controles.dominio.addEventListener('change', completarDesdeLoCargado);
+  controles.dominio.addEventListener('blur', completarDesdeLoCargado);
+
   const contenedor = h(
     'div',
     {},
+    avisoDominio,
     h(
       'div',
       { class: 'campos' },
@@ -91,5 +165,5 @@ export function camposVehiculo(datos = {}, { conTenencia = true, requerido = tru
       : {})
   });
 
-  return { contenedor, controles, leer };
+  return { contenedor, controles, leer, completarDesdeLoCargado };
 }

@@ -244,6 +244,7 @@ export async function vistaStock({ dominio }) {
     encabezado(
       titulo,
       'En stock · la documentacion pasa sola a la venta cuando se venda',
+      h('a', { class: 'boton boton--primario', href: `#/ventas/nueva?dominio=${d}` }, '💰 Cargar venta'),
       h('a', { class: 'boton', href: '#/documentacion' }, '← Documentacion'),
       h('a', { class: 'boton', href: `#/buscador/${d}` }, 'Ficha del dominio'),
       h('a', { class: 'boton', href: `#/infracciones/${d}` }, '🚨 Infracciones'),
